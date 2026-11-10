@@ -1,0 +1,17 @@
+{
+  "name": "waddle",
+  "version": "1.0.0",
+  "description": "A minimal web proxy you run yourself: a self-feeding rotating pool of free proxies, proxy chaining, encrypted DNS and browser identity spoofing.",
+  "private": true,
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "test:browser": "node test/browser/e2e.mjs",
+    "format": "npx --yes prettier@3 --write .",
+    "format:check": "npx --yes prettier@3 --check ."
+  }
+}
