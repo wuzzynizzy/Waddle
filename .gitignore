@@ -1,0 +1,11 @@
+# Runtime state (settings, the proxy pool cache)
+/data/
+
+# Never part of the repository: Waddle has no dependencies; these only appear when the browser test is set up
+node_modules/
+package-lock.json
+
+# Local odds and ends
+.env
+*.log
+.DS_Store

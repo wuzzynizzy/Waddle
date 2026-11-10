@@ -1,0 +1,6 @@
+data/
+node_modules/
+docs/
+*.md
+*.html
+*.json
