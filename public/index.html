@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="same-origin">
+<title>Waddle</title>
+<link rel="icon" href="/-/icon.svg">
+<link rel="stylesheet" href="/-/app.css?v={{v}}">
+</head>
+<body>
+<header id="bar">
+  <button id="home" class="ic" title="Home" aria-label="Home"><img src="/-/icon.svg" alt="" width="22" height="22"></button>
+  <button id="back" class="ic nav" title="Back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button id="fwd" class="ic nav" title="Forward" aria-label="Forward"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+  <button id="reload" class="ic nav" title="Reload" aria-label="Reload"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.340-5.660M20 4v5h-5"/></svg></button>
+  <form id="nav" class="nav"><input id="addr" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter address" aria-label="Address"></form>
+  <span class="grow"></span>
+  <button id="route" title="Route" aria-label="Route"><i></i><span></span></button>
+  <button id="rotate" class="ic nav" title="New exit" aria-label="New exit"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></button>
+  <button id="gear" class="ic" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+</header>
+<div id="progress"></div>
+<main id="stage">
+  <section id="landing">
+    <img src="/-/icon.svg" alt="" width="84" height="84">
+    <h1>Waddle</h1>
+    <form id="start"><input id="q" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter address" aria-label="Address" autofocus></form>
+    <div id="chips"></div>
+  </section>
+  <div id="fit"><iframe id="frame" title="Page" allowfullscreen allow="fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"></iframe></div>
+</main>
+<aside id="drawer" hidden>
+  <nav id="tabs"></nav>
+  <div id="panel"></div>
+</aside>
+<script src="/-/app.js?v={{v}}"></script>
+</body>
+</html>
