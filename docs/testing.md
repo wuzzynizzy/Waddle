@@ -5,7 +5,7 @@ browser.
 
 ```sh
 npm test              # unit and integration: 191 tests
-npm run test:browser  # end to end in Chrome: 134 checks
+npm run test:browser  # end to end in Chrome: 138 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
@@ -59,7 +59,8 @@ The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
 - A third party in a frame gets no cookies and its own storage, and is a site of its own when opened
   in the address bar.
 - Multiple browser tabs keep separate addresses and histories; `_blank` links open another Waddle
-  tab. Bookmarks, folders, one-way browser HTML import, saved addresses, searchable local history,
+  tab, and a narrow viewport scrolls the strip without horizontal page overflow. Bookmarks, folders,
+  one-way browser HTML import, saved addresses, searchable local history,
   and New identity cleanup are exercised in the browser. The library has no export controls.
 - The minimal start screen keeps the proxy entry flow prominent, retains GitHub/MIT attribution, and
   omits promotional panels, checkpoint controls and export actions.
