@@ -969,6 +969,26 @@
           /* shell gone */
         }
       };
+      var openInShell = function (url) {
+        if (!isTop) return false;
+        try {
+          var raw = url == null ? '' : String(url);
+          var real = '';
+          if (raw) {
+            if (raw.indexOf(ORIGIN + P) === 0 || raw.indexOf(P) === 0) real = unp(raw);
+            else {
+              var parsed = new W.URL(raw, realBase());
+              if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+              real = parsed.href;
+            }
+            if (!real || !/^https?:\/\//i.test(real)) return false;
+          }
+          realParent.postMessage({ waddle: 1, kind: 'open', url: real }, ORIGIN);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
       ['pushState', 'replaceState'].forEach(function (k) {
         wrap(W.History.prototype, k, function (o) {
           return function (state, title, url) {
@@ -980,7 +1000,7 @@
                 /* as is */
               }
             var r = o.apply(this, a);
-            notify('nav');
+            notify(k === 'replaceState' ? 'replace' : 'nav');
             return r;
           };
         });
@@ -988,6 +1008,9 @@
       wrap(W, 'open', function (o) {
         return function (u, target) {
           var a = [].slice.call(arguments);
+          if (isTop && (target == null || String(target).toLowerCase() !== '_self')) {
+            if (openInShell(u == null ? '' : u)) return null;
+          }
           if (a.length && a[0] != null && a[0] !== '')
             try {
               a[0] = px(String(a[0]));
@@ -1004,7 +1027,33 @@
         function (e) {
           try {
             var el = e.target && e.target.closest && e.target.closest('a[href],area[href]');
-            if (el) fixEl(el);
+            if (!el) return;
+            fixEl(el);
+            var target = String(el.getAttribute('target') || '').toLowerCase();
+            if (isTop && (target === '_blank' || e.ctrlKey || e.metaKey || e.shiftKey)) {
+              var href = unp(el.href || el.getAttribute('href'));
+              if (openInShell(href)) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+              }
+            }
+          } catch (err) {
+            /* ignore */
+          }
+        },
+        true
+      );
+      listen(
+        W,
+        'auxclick',
+        function (e) {
+          if (e.button !== 1 || !isTop) return;
+          try {
+            var a = e.target && e.target.closest && e.target.closest('a[href],area[href]');
+            if (a && openInShell(unp(a.href || a.getAttribute('href')))) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+            }
           } catch (err) {
             /* ignore */
           }
@@ -1051,10 +1100,10 @@
         });
       });
       listen(W, 'hashchange', function () {
-        notify('nav');
+        notify('pop');
       });
       listen(W, 'popstate', function () {
-        notify('nav');
+        notify('pop');
       });
       listen(W, 'pagehide', function () {
         notify('leave');

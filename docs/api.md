@@ -10,7 +10,8 @@ under `/-/api/`.
 - `POST` bodies are JSON (`content-type: application/json`), at most 1 MB.
 - If `WADDLE_PASSWORD` is set, send it as HTTP Basic credentials (user `waddle` unless `WADDLE_USER`
   says otherwise).
-- Every successful reply is the full state (below), plus any extra fields noted per call.
+- Successful replies normally include the full state (below), plus any extra fields noted per call.
+  `GET /-/api/inspect` is the exception: it returns only the request and cookie inspection data.
 - State that belongs to a visitor (cookies, identity, the last route, hosts allowed without HTTPS) is
   that of the session named by the `waddle` cookie. A scripted client should keep that cookie.
 
@@ -219,15 +220,41 @@ error `no proxy`: a name someone typed is never asked about directly.
 | Call                                                         | Effect                                                                                       |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
 | `POST /-/api/cookies` with `{}`                              | Empty the caller's cookie jar.                                                               |
-| `POST /-/api/identity` with `{}`                             | New identity: cookies, fingerprint, exits and chains, remembered choices and cached lookups. |
+| `POST /-/api/identity` with `{}`                             | Reset server-side session data: cookies, fingerprint, exits and cached lookups.             |
 | `POST /-/api/plain` with `{"host":"old.example"}`            | Allow one host without HTTPS, for the caller's session.                                      |
 | `POST /-/api/plain` with `{"host":"old.example","on":false}` | Take that back.                                                                              |
+
+The interface's **New identity** action also clears browser-local history and open tabs, while
+preserving bookmarks, saved addresses and frontend preferences. That browser-side cleanup is not
+performed by calling the HTTP endpoint directly.
+
+## Inspector
+
+`GET /-/api/inspect?url=<encoded-http-or-https-URL>`
+
+Returns `{ "requests": [...], "cookies": [...] }` for the caller's Waddle session. The newest
+request records come first. Waddle keeps at most 200 records in memory per session and returns up to
+150. The `url` parameter selects which site/path's cookies to show; the request list is the recent
+session log, not a per-URL filter.
+
+A request record includes its `url`, `method`, resource `type`, upstream `status`, status sent to
+the browser (`waddleStatus`), elapsed `ms`, response `bytes`, known `servedBytes`, proxy `route`,
+`blocked`/`error` reason and a small allow-list of response headers. `Set-Cookie` header values are
+replaced with a note that they were kept in Waddle's jar. A cookie record includes its name, domain,
+path, flags and expiry; HttpOnly cookie values are always empty, while other matching values are
+included. The request log is process memory only: it is not written to disk and is cleared by New
+identity, session expiry or restart.
+
+The interface reads the current page's rewritten source in the browser; the private Waddle bootstrap
+is omitted. See [Security](security.md#one-origin-for-everything) for the limits of keeping browser
+and proxied-page data on one origin.
 
 ## Other endpoints
 
 | Path                               | Purpose                                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------- |
 | `GET /-/ping`                      | Health check. Answers 204 and never needs the password.                           |
+| `GET /-/api/inspect?url=…`         | Recent request records and cookie details for the current Waddle session. See [Inspector](#inspector). |
 | `GET /-/go?q=…`                    | Opens the interface on an address or a search, as the start page's box does.      |
 | `GET /<host>/<path>`               | Shortcut: `http://localhost:8080/example.com/news` opens that page in Waddle.     |
 | `GET, POST /-/cookie`              | Used by the page script to read and write `document.cookie`. Not for general use. |

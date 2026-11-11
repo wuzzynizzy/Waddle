@@ -4,8 +4,8 @@ Two suites. The first needs nothing but Node and runs in about 30 seconds. The s
 browser.
 
 ```sh
-npm test              # unit and integration: 182 tests
-npm run test:browser  # end to end in Chrome: 103 checks
+npm test              # unit and integration: 183 tests
+npm run test:browser  # end to end in Chrome: 132 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
@@ -44,7 +44,7 @@ come through an exit.
 | `dns.test.js`     | 21    | Wire format, caching, padding, each of the five orders, failover, "no such name", blocked names; that a visited site's name only ever travels through a proxy; the system fallback and its limits; the public resolver list from download to the kept few.                                                                                                        |
 | `net.test.js`     | 25    | That a request without a proxy is refused; HTTP, SOCKS4 and SOCKS5 tunnels; credentials; chains of two and three; which hop failed and why; timeouts; stale connections; names resolved at the exit; plain HTTP carried as a tunnel; the private-address guard.                                                                                                   |
 | `pool.test.js`    | 26    | Harvesting from each kind of source, testing, protocol detection, discovery, persistence; vetting (tampering, header leaks); eviction and blame; chains and entry countries; one exit per page and exits for third parties; health; pausing when nothing answers; adaptive scheduling.                                                                            |
-| `proxy.test.js`   | 40    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies and the cookie policy, trackers, workers, HTTPS only, what the site sees and what the browser gets back, every error page, the statuses a host's edge would replace, rules, rotation, chains, retries, the API, the cross-site guard, the password, WebSockets. |
+| `proxy.test.js`   | 41    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies and the cookie policy, trackers, workers, HTTPS only, what the site sees and what the browser gets back, every error page, the statuses a host's edge would replace, rules, rotation, chains, retries, the API and session-local inspector (including HttpOnly redaction), the cross-site guard, the password, WebSockets. |
 | `timing.test.js`  | 8     | Response times, below.                                                                                                                                                                                                                                                                                                                                            |
 
 The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
@@ -57,6 +57,13 @@ The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
   time zone, screen, colour scheme, WebRTC, canvas, WebGL. The same holds in frames and workers.
 - A third party in a frame gets no cookies and its own storage, and is a site of its own when opened
   in the address bar.
+- Multiple browser tabs keep separate addresses and histories; `_blank` links open another Waddle
+  tab. Bookmarks, folders, JSON/HTML import and export, saved addresses, searchable local history,
+  and New identity cleanup are exercised in the browser.
+- The Inspect panel shows request routes and statuses, response headers, cookie names with HttpOnly
+  values hidden, and rewritten source without the Waddle bootstrap.
+- Recommendations are drawn from the browser's local library; external suggestions are off by
+  default. Appearance, density, text size, tab position and start-page options are persisted locally.
 - The settings drawer saves changes, shows the page's route, and keeps unsent text. At a phone's
   width nothing runs off the side of the screen.
 - **What sites see** shows the claimed browser next to the real one.

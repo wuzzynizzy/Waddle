@@ -1045,6 +1045,47 @@ test('requests that escape rewriting are caught by their Referer and sent back i
   assert.equal((await get(port, '/-/app.js', { headers: from })).status, 200, "Waddle's own files are never mistaken for strays");
 });
 
+test('inspector API is session-local, redacts HttpOnly cookie values and reports the proxy route', async () => {
+  const s = await site({
+    '/': {
+      headers: {
+        'Content-Type': 'text/html',
+        'Set-Cookie': ['sid=secret; Path=/; HttpOnly', 'theme=light; Path=/'],
+        'X-Example': 'kept only in the upstream response',
+      },
+      body: '<!doctype html><title>Inspector fixture</title><p>hello</p>',
+    },
+    '/pixel.png': { headers: { 'Content-Type': 'image/png' }, body: 'pixel' },
+  });
+  const { b } = await start();
+  await b.page(s.url + '/');
+  await b.fetch(s.url + '/pixel.png', s.url + '/');
+  const inspected = await b.api('inspect?url=' + encodeURIComponent(s.url + '/'));
+  assert.equal(inspected.headers['x-waddle'], '1');
+  assert.ok(inspected.json.requests.length >= 2);
+  const document = inspected.json.requests.find((x) => x.url === s.url + '/');
+  assert.ok(document);
+  assert.equal(document.status, 200);
+  assert.equal(document.waddleStatus, 200);
+  assert.equal(document.route[0].cc, 'US');
+  assert.equal(document.headers['content-type'], 'text/html');
+  assert.equal(document.headers['set-cookie'], '[values kept in Waddle’s cookie jar]');
+  assert.ok(document.bytes > 0);
+  assert.ok(document.ms >= 0);
+  assert.deepEqual(
+    inspected.json.cookies.map((x) => [x.name, x.httpOnly, x.value]),
+    [
+      ['sid', true, ''],
+      ['theme', false, 'light'],
+    ]
+  );
+  assert.equal((await b.raw('/-/api/inspect', { headers: {} })).status, 403);
+  const other = await start({}, { exit: false });
+  assert.deepEqual((await other.b.api('inspect')).json.requests, [], 'another browser session sees no request history');
+  await b.api('identity', {});
+  assert.deepEqual((await b.api('inspect')).json.requests, [], 'a new identity clears server-side inspector data');
+});
+
 test('settings API: guarded, validated, and everything it changes takes effect', async () => {
   const s = await site({ '/': { body: PAGE } });
   const d = await doh({ 'looked-up.test': ['10.9.8.7'] });
