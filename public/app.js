@@ -607,6 +607,7 @@
       );
     });
     links.hidden = !links.firstChild;
+    links.style.setProperty('--n', String(Math.min(4, links.childNodes.length || 1)));
 
     setTheme(c.ui.theme);
     dress();
@@ -1339,7 +1340,7 @@
             rows: 3,
             spellcheck: 'false',
             'aria-label': 'Proxies to add',
-            placeholder: 'socks5://1.2.3.4:1080\n5.6.7.8:8080',
+            placeholder: 'socks5://203.0.113.9:1080\n198.51.100.7:8080',
           })
         );
         r.push(
@@ -1628,8 +1629,20 @@
             ]),
             el('p', {
               text:
-                [(id.languages || [])[0], id.tz, id.screen, id.cores ? id.cores + ' cores' : '', id.gpu].filter(Boolean).join(' · ') ||
-                'As your browser reports it',
+                // Before a page has been opened there is no exit yet, so nothing to take a language or a time zone from.
+                [
+                  s.languages === 'exit' && !id.cc
+                    ? s.timezone === 'exit'
+                      ? 'Language and time zone of the exit'
+                      : 'Language of the exit'
+                    : (id.languages || [])[0],
+                  s.timezone === 'exit' && !id.cc ? (s.languages === 'exit' ? '' : 'Time zone of the exit') : id.tz,
+                  id.screen,
+                  id.cores ? id.cores + ' cores' : '',
+                  id.gpu,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'As your browser reports it',
             }),
           ])
         );

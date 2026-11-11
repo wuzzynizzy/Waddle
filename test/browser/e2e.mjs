@@ -123,6 +123,40 @@ const site = http.createServer((req, res) => {
       { 'Set-Cookie': 'wid=1; Path=/', 'X-Frame-Options': 'SAMEORIGIN' }
     );
   }
+  // An ordinary page with a stylesheet and a picture of its own: what the screenshots show.
+  if (u.pathname === '/tour') {
+    return html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field notes</title><link rel="stylesheet" href="/tour.css"></head><body>
+<header><a class="brand" href="/tour">Field notes</a><nav><a href="/tour">Journal</a><a href="/tour">Maps</a><a href="/tour">About</a></nav></header>
+<main><p class="kicker">Journal · Day 14</p><h1>The long walk to open water</h1>
+<p class="lead">Emperor penguins walk for days across the sea ice between the colony and the open sea. They are not fast, and they do not need to be.</p>
+<img src="/tour.svg" alt="Penguins walking in a line across the ice" width="720" height="280">
+<p>They go in single file, each in the tracks of the one ahead, and when the ice slopes the right way they drop to their bellies and slide.</p>
+<p class="note">A stand-in page. It is served by a test website on this machine and reaches the browser through a test proxy.</p></main></body></html>`);
+  }
+  if (u.pathname === '/tour.css') {
+    res.writeHead(200, { 'Content-Type': 'text/css' });
+    return res.end(`*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:#17202e;background:#f7f9fc}
+header{display:flex;align-items:center;gap:24px;padding:16px clamp(20px,6vw,64px);background:#fff;border-bottom:1px solid #e3e8f0}
+.brand{font-weight:700;font-size:18px;color:#17202e;text-decoration:none;margin-right:auto}nav{display:flex;gap:20px}nav a{color:#5a6577;text-decoration:none;font-size:15px}
+main{max-width:768px;margin:0 auto;padding:40px 24px 64px}.kicker{margin:0;color:#0b6bcb;font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+h1{font-size:40px;line-height:1.15;margin:8px 0 16px;letter-spacing:-.02em}.lead{font-size:20px;color:#3b4658;margin:0 0 28px}
+img{display:block;width:100%;height:auto;border-radius:16px;margin:0 0 28px}.note{margin-top:32px;padding:14px 16px;border-radius:12px;background:#eaf2fd;color:#27405f;font-size:15px}
+@media (max-width:600px){h1{font-size:30px}.lead{font-size:18px}nav{display:none}main{padding:28px 20px 48px}}`);
+  }
+  if (u.pathname === '/tour.svg') {
+    const bird = (x, y, s) =>
+      `<g transform="translate(${x} ${y}) scale(${s})"><ellipse cx="0" cy="0" rx="13" ry="24" fill="#1b2433"/><ellipse cx="2" cy="3" rx="8" ry="18" fill="#fff"/>` +
+      `<circle cx="3" cy="-20" r="9" fill="#1b2433"/><path d="M10-21l9 3-9 3z" fill="#ff8a1f"/><path d="M-4 23h10l4 4h-16z" fill="#ff8a1f"/></g>`;
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+    return res.end(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bfdcff"/><stop offset="1" stop-color="#eef6ff"/></linearGradient></defs>` +
+        `<rect width="720" height="280" fill="url(#s)"/><circle cx="590" cy="70" r="34" fill="#fff6d8"/><path d="M0 170l90-50 80 40 110-70 120 80 90-45 110 55 120-40v140H0z" fill="#dcebfb"/>` +
+        `<path d="M0 200q180-30 360-8t360-12v100H0z" fill="#fff"/>` +
+        [0, 1, 2, 3, 4].map((i) => bird(150 + i * 100, 196 - (i % 2) * 4, 1 - i * 0.06)).join('') +
+        `</svg>`
+    );
+  }
   if (u.pathname === '/style.css') {
     res.writeHead(200, { 'Content-Type': 'text/css' });
     return res.end('h1{background:url(/bg.png)} @import "/more.css";');
@@ -320,8 +354,31 @@ page.on('console', (m) => {
 });
 const SHOTS = process.env.SHOTS || '';
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
-const shot = async (name) => {
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png') });
+/** A screenshot of the window, or of one element of it. */
+const shot = async (name, selector) => {
+  if (!SHOTS) return;
+  const file = path.join(SHOTS, name + '.png');
+  if (selector) await (await page.$(selector)).screenshot({ path: file });
+  else await page.screenshot({ path: file });
+};
+/** The view as it is, at a phone's width: a screenshot, and whether everything still fits the screen. */
+const phone = async (name) => {
+  await page.setViewport({ width: 390, height: 780 });
+  await sleep(400);
+  await shot(name);
+  const fits = await page.evaluate(() => {
+    const tabs = document.getElementById('tabs');
+    const shown = [...document.querySelectorAll('#bar > *')].filter((n) => n.getClientRects().length);
+    return {
+      sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      bar: shown.every((n) => n.getBoundingClientRect().left >= 0 && n.getBoundingClientRect().right <= innerWidth + 0.5),
+      tabs: document.getElementById('drawer').hidden || tabs.scrollWidth <= tabs.clientWidth,
+      address: Math.round(document.getElementById('nav').getBoundingClientRect().width),
+    };
+  });
+  await page.setViewport({ width: 1280, height: 800 });
+  await sleep(300);
+  return fits;
 };
 const frameOf = async () => {
   const h = await page.$('#frame');
@@ -389,6 +446,8 @@ try {
   );
   check('quick links shown', (await page.$$eval('#links .tile', (n) => n.length)) === 4);
   await shot('landing');
+  const small = await phone('phone-landing');
+  check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
   await page.type('#q', SITE + '/');
   await page.keyboard.press('Enter');
   let f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);
@@ -715,6 +774,27 @@ try {
   check('storage it filled as a guest is not there when it is visited itself', own.kept === null, own);
   check('visited itself, it keeps its cookies', /wid=1/.test(own.cookie) && /wid=1/.test(own.sent), own);
 
+  // ---- an ordinary page: its own stylesheet and picture arrive, and it is laid out by them
+  await goTo(SITE + '/tour');
+  f = await waitFrame(() => document.title === 'Field notes' && document.images.length === 1 && document.images[0].complete);
+  const tour = await f.evaluate(() => ({
+    heading: getComputedStyle(document.querySelector('h1')).fontSize,
+    picture: document.images[0].naturalWidth,
+    sheet: document.styleSheets[0].href,
+  }));
+  check(
+    'a page is laid out by its own stylesheet and shows its own picture, both fetched through the proxy',
+    tour.heading === '40px' && tour.picture > 0 && tour.sheet.includes('/~/' + SITE + '/tour.css'),
+    tour
+  );
+  await shot('browsing');
+  const held = await phone('phone-browsing');
+  check(
+    'at a phone’s width the toolbar keeps its buttons on screen and room for the address',
+    !held.sideways && held.bar && held.address >= 150,
+    held
+  );
+
   // ---- settings drawer
   await goTo(SITE + '/');
   f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);
@@ -735,7 +815,9 @@ try {
     lastCard.length === 2 && lastCard[0].includes('127.0.0.1:' + sitePort) && /^exit \| http:\/\/127\.0\.0\.1:\d+ \| US$/.test(lastCard[1]),
     lastCard
   );
-  await shot('route');
+  await shot('route', '#drawer');
+  const narrow = await phone('phone-settings');
+  check('at a phone’s width all six tabs are in view', !narrow.sideways && narrow.tabs, narrow);
   await tabTo('Identity');
   await page.waitForFunction(() => [...document.querySelectorAll('#panel label')].some((l) => l.textContent === 'Canvas'));
   check(
@@ -746,7 +828,7 @@ try {
     ),
     await page.$eval('#panel .card', (n) => n.textContent)
   );
-  await shot('identity');
+  await shot('identity', '#drawer');
   await press('spoof.theme=light');
   await sleep(600);
   check('a change in the drawer is saved on the server', app.config.value.spoof.theme === 'light');
@@ -782,14 +864,14 @@ try {
       lists.some((l) => /http/.test(l.textContent) && /US/.test(l.textContent) && /\d+ ms/.test(l.textContent))
     )
   );
-  await shot('proxies');
+  await shot('proxies', '#drawer');
   await page.type('#manual', 'socks5://203.0.113.9:1080');
   await page.evaluate(() => document.activeElement.blur());
   await sleep(4600); // long enough for one background refresh
   await tabTo('DNS');
   await page.waitForSelector('#panel [data-k="dnspick"]');
   check('the custom resolver field is not there until asked for', (await page.$('#dnsurl')) === null);
-  await shot('dns');
+  await shot('dns', '#drawer');
   await press('dnspick');
   await page.waitForSelector('#panel .dd-opt');
   await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((o) => /Custom address/.test(o.textContent)).click());
@@ -822,7 +904,7 @@ try {
   // ---- what sites see
   await tabTo('Privacy');
   await page.waitForSelector('#panel [data-k="btn:What sites see"]');
-  await shot('privacy');
+  await shot('privacy', '#drawer');
   await press('btn:What sites see');
   f = await waitFrame(() => document.title === 'What sites see' && document.querySelectorAll('#fp tbody tr').length > 5);
   check('the check page opens under its own name', (await addrBar()) === 'waddle:check' && (await page.$eval('#drawer', (d) => d.hidden)));

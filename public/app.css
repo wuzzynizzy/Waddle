@@ -287,6 +287,8 @@ body.browsing .grow {
 }
 #route {
   max-width: 280px;
+  min-width: 0; /* a long status is cut short before it pushes the buttons off a narrow screen */
+  margin-left: auto; /* the buttons on the right stay at the right edge, whatever room the address leaves */
   margin-right: 4px;
 }
 #progress {
@@ -996,5 +998,30 @@ textarea:focus,
   }
   .row input[type='text'] {
     width: 160px;
+  }
+  /* all six tabs in view on a phone, without scrolling sideways */
+  #tabs {
+    padding: 12px 8px 0;
+    gap: 0;
+  }
+  #tabs button {
+    flex: 1 1 auto;
+    padding: 8px 5px 12px;
+    font-size: 13.5px;
+    text-align: center;
+  }
+  /* quick links: one row of up to four, however narrow */
+  #links {
+    grid-template-columns: repeat(var(--n, 4), minmax(0, 88px));
+    gap: 4px;
+  }
+  .tile {
+    padding: 14px 2px 12px;
+  }
+}
+@media (max-width: 480px) {
+  /* The address needs the room more. "New identity" is one tap away, on the Privacy tab. */
+  body.browsing #fresh {
+    display: none;
   }
 }
