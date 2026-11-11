@@ -61,11 +61,12 @@ set -eu
 cd "$(dirname "$0")"
 export WADDLE_PROFILE="${WADDLE_PROFILE:-small}"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=320}"
+export WADDLE_OPEN_BROWSER="${WADDLE_OPEN_BROWSER:-1}"
 exec node server.js
 RUNNER
 chmod +x "$DEST/run-waddle.sh"
 
 printf '\nWaddle is installed in %s\n' "$DEST"
-printf 'Start it with: "%s/run-waddle.sh"\n' "$DEST"
-printf 'Then open:     http://localhost:8080\n'
-printf 'It listens on this machine only by default. Set a strong WADDLE_PASSWORD before exposing it.\n'
+printf 'To start it again later: "%s/run-waddle.sh"\n' "$DEST"
+printf 'Starting Waddle and opening http://localhost:8080. Leave this terminal open; press Ctrl+C to stop.\n'
+"$DEST/run-waddle.sh"

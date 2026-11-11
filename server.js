@@ -3,6 +3,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 const net = require('./lib/net');
@@ -611,6 +612,28 @@ function createApp() {
   };
 }
 
+function openBrowser(url) {
+  let command;
+  let args;
+  if (process.platform === 'win32') {
+    command = 'cmd.exe';
+    args = ['/d', '/c', 'start', '', url];
+  } else if (process.platform === 'darwin') {
+    command = 'open';
+    args = [url];
+  } else {
+    command = 'xdg-open';
+    args = [url];
+  }
+  try {
+    const opener = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    opener.once('error', () => console.log('Open ' + url + ' in your browser.'));
+    opener.unref();
+  } catch {
+    console.log('Open ' + url + ' in your browser.');
+  }
+}
+
 if (require.main === module) {
   const app = createApp();
   const port = Number(process.env.PORT) || 8080;
@@ -621,7 +644,9 @@ if (require.main === module) {
       const local = /^(127\.|::1$)/.test(a.address);
       const everywhere = a.address === '0.0.0.0' || a.address === '::';
       const name = local || everywhere ? 'localhost' : a.family === 'IPv6' ? '[' + a.address + ']' : a.address;
-      console.log('Waddle is up on http://' + name + ':' + a.port + (everywhere ? ' (all network interfaces)' : ''));
+      const url = 'http://' + name + ':' + a.port;
+      console.log('Waddle is up on ' + url + (everywhere ? ' (all network interfaces)' : ''));
+      if (process.env.WADDLE_OPEN_BROWSER === '1') openBrowser(url);
       if (!local && !process.env.WADDLE_PASSWORD)
         console.log('No WADDLE_PASSWORD is set: anyone who can reach this port can browse through Waddle and change its settings.');
     },

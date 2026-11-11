@@ -91,14 +91,13 @@ There is no rule that sends a site around the proxies.
 | `pool.canaries`       | Tamper checks      | one per line                        | 3 pages          | same          | Known plain-HTTP pages, as `<address> <expected text>`. See below.                                                         |
 | `pool.sources`        | Sources            | up to 2000 entries                  | 39               | 39            | Where proxies come from. The source list is capped to keep settings files small.                                            |
 
-`WADDLE_PROFILE=small` is enabled by the Docker image and the provided launchers. It lowers the
-pool defaults and runtime candidate/DNS caches for constrained hosts. The resolver cache is 1,500
-entries instead of 5,000; unchecked proxy candidates are capped at 25,000 instead of 150,000. These
-are runtime-memory bounds, not extra disk caches. The saved files contain settings and currently live
-proxies; raw list archives and unchecked candidates are not kept on disk. The 512 MB Compose cap and
-small-profile defaults are targets, not measured peak usage; actual memory depends on workload and a
-container that crosses the cap may be terminated. You can change most pool settings within the active
-profile's ceiling; use the standard profile only on a larger host.
+The platform launchers select `WADDLE_PROFILE=small` by default. It lowers the pool defaults and
+runtime candidate/DNS caches for constrained hosts. The resolver cache is 1,500 entries instead of
+5,000; unchecked proxy candidates are capped at 25,000 instead of 150,000. These are runtime-memory
+bounds, not extra disk caches. The saved files contain settings and currently live proxies; raw list
+archives and unchecked candidates are not kept on disk. These limits reduce background work but are
+not a memory benchmark or a guarantee for a particular host. You can change most pool settings within
+the active profile's ceiling; use the standard profile only on a larger host.
 
 Settings without a panel entry can be changed in `data/config.json` or over the API.
 

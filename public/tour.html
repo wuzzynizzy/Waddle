@@ -183,7 +183,7 @@
             <svg viewBox="0 0 120 140"><ellipse cx="60" cy="127" rx="31" ry="6" fill="#234454" opacity=".12"/><path d="M33 55c-12 9-18 24-16 39 1 5 6 6 9 2l13-20z" fill="#1b2a3b"/><path d="M60 13c-24 0-37 19-37 48v25c0 24 15 39 37 39s37-15 37-39V61c0-29-13-48-37-48z" fill="#182638"/><path d="M60 42c-7-9-22-7-24 8-.5 5 1 9 4 12-4 7-5 14-5 23 0 19 10 30 25 30s25-11 25-30c0-9-1-16-5-23 3-3 4.5-7 4-12-2-15-17-17-24-8z" fill="#fff"/><circle cx="48" cy="55" r="4" fill="#182638"/><circle cx="72" cy="55" r="4" fill="#182638"/><path d="M52 65c0-3 4-4.5 8-4.5s8 1.5 8 4.5-5 8-8 8-8-5-8-8z" fill="#f27b2b"/><path d="M34 83c8 6 17 9 26 9s18-3 26-9" fill="none" stroke="#f27b2b" stroke-width="7" stroke-linecap="round"/><path d="M45 122c-2 5 0 8 5 8h10l-5-11m17 3c2 5 0 8-5 8H57l5-11" fill="#f27b2b"/></svg>
           </div>
           <p class="eyebrow">Small-server friendly</p><h3>Keep the penguin nimble.</h3>
-          <p>The <code>small</code> profile reduces pool work and cache sizes for constrained hosts. The sample Compose file can cap RAM at 512&nbsp;MB, but peak use has not been benchmarked and depends on workload. Page rendering, address suggestions and your library stay in your browser.</p>
+          <p>The <code>small</code> profile reduces background pool work and cache sizes. Launchers default to a 320&nbsp;MB V8 heap limit, but total memory depends on workload and has not been benchmarked. Page rendering, suggestions and your library stay in your browser.</p>
           <a href="https://github.com/wuzzynizzy/Waddle/blob/main/docs/configuration.md" target="_blank" rel="noreferrer">See the resource knobs <span aria-hidden="true">↗</span></a>
         </aside>
       </div>
@@ -225,8 +225,8 @@
       </div>
       <div class="deploy-note" data-reveal>
         <div class="deploy-icon">⌂</div>
-        <div><b>Putting it on a small VPS?</b><p>Docker Compose includes a 512&nbsp;MB memory cap and a persistent data volume. Add a strong password and TLS reverse proxy before making it public.</p></div>
-        <a href="https://github.com/wuzzynizzy/Waddle/blob/main/compose.yaml" target="_blank" rel="noreferrer">View compose file ↗</a>
+        <div><b>Keep it simple.</b><p>The installer starts Waddle and opens your browser. It stays local by default; set a strong password and add HTTPS before sharing it.</p></div>
+        <a href="https://github.com/wuzzynizzy/Waddle/blob/main/docs/installing.md" target="_blank" rel="noreferrer">Quick start guide ↗</a>
       </div>
     </section>
 

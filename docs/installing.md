@@ -1,17 +1,29 @@
-# Install and self-host
+# Install and run
 
-Waddle is a small Node.js application with no runtime npm dependencies or build step. The platform
-installers are single script files that download the source and write a launcher; a standalone native
-binary is not currently provided. **Node.js 20 or newer** is required on Windows, macOS and Linux.
+Waddle has no runtime npm dependencies or build step. You need **Node.js 20 or newer**. The quick
+installers fetch the source, save a launcher, start Waddle, and open it in your default browser.
+Keep the terminal window open; press `Ctrl+C` to stop it.
 
-## Windows, macOS and Linux installers
+## One-command install
 
-The install scripts need internet access to GitHub and Node 20+. On macOS and Linux they also need
-`curl` and `tar`; Windows uses PowerShell's built-in download and ZIP support.
+### macOS or Linux
 
-### macOS and Linux
+```sh
+curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh
+```
 
-Review the script before running it if you prefer not to pipe downloaded code into a shell:
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex
+```
+
+macOS and Linux also need `curl` and `tar`. Windows uses PowerShell's built-in download and ZIP
+support. By default, the source and launcher go in `~/.local/share/waddle` on macOS/Linux or
+`%LOCALAPPDATA%\Waddle` on Windows. Re-running the installer updates the source and keeps the `data`
+directory.
+
+If you want to inspect an installer before running it, download it first, read it, then run it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh -o install-waddle.sh
@@ -19,119 +31,69 @@ less install-waddle.sh
 sh install-waddle.sh
 ```
 
-Or run the one-command installer:
+The scripts are available at `/install.sh` and `/install.ps1` on a running Waddle. The planned
+`waddle.wisp.uno` deployment is **not verified** from this checkout; use the GitHub URLs above unless
+you have independently confirmed that domain is live and trusted.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh
-```
+## Start it again later
 
-It installs under `~/.local/share/waddle` by default. Start Waddle with:
+The installer leaves a small launcher in its install directory. Run it whenever you want to start
+Waddle again; it opens the browser when desktop integration is available.
 
-```sh
-~/.local/share/waddle/run-waddle.sh
-```
-
-To choose another absolute install path, set `WADDLE_HOME` before running the installer. The launcher
-uses the `small` resource profile and a 320 MB Node.js heap by default; existing `NODE_OPTIONS` and
-`WADDLE_PROFILE` values are respected.
-
-### Windows PowerShell
-
-```powershell
-irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex
-& "$env:LOCALAPPDATA\Waddle\run-waddle.cmd"
-```
-
-The default install directory is `%LOCALAPPDATA%\Waddle`. Set `$env:WADDLE_HOME` to choose another
-location before installing. Start Waddle from Command Prompt with
-`"%LOCALAPPDATA%\Waddle\run-waddle.cmd"` or from PowerShell with
-`& "$env:LOCALAPPDATA\Waddle\run-waddle.cmd"`. The generated launchers use the same `small` profile
-and 320 MB heap defaults as the macOS/Linux launcher.
-
-The scripts install source, not an opaque executable: the repository is available at
-<https://github.com/wuzzynizzy/Waddle>. Re-running an installer updates the source in place and
-leaves the `data` directory in place. Back up settings before moving or replacing an install.
-
-### Hosted installer URLs
-
-When the intended public deployment is configured, the scripts are also served at
-`https://waddle.wisp.uno/install.sh` and `https://waddle.wisp.uno/install.ps1`. The repository
-contains those routes, but DNS and deployment for `waddle.wisp.uno` have not been verified from this
-checkout. Use the GitHub URLs above unless you have confirmed the domain resolves to a trusted Waddle
-server.
+- macOS/Linux: `~/.local/share/waddle/run-waddle.sh`
+- Windows: `"%LOCALAPPDATA%\Waddle\run-waddle.cmd"` from Command Prompt, or
+  `& "$env:LOCALAPPDATA\Waddle\run-waddle.cmd"` from PowerShell
 
 ## Run from a source checkout
 
 ```sh
 git clone https://github.com/wuzzynizzy/Waddle.git
 cd Waddle
-npm start
+./start-waddle.sh
 ```
 
-Open <http://localhost:8080>. The default bind address is `127.0.0.1`, so Waddle is local to the
-machine. `npm start` does not set the `small` profile automatically; use it on a suitably sized host
-or start it with `WADDLE_PROFILE=small` and `NODE_OPTIONS=--max-old-space-size=320`.
+On Windows, run `start-waddle.cmd` from Command Prompt or PowerShell. These launchers use the `small`
+profile and a 320 MB V8 heap limit by default, then open `http://localhost:8080`. To start without
+opening a browser, set `WADDLE_OPEN_BROWSER=0`. Developers can still use `npm start`.
 
-To expose a non-container install on your LAN, bind to `0.0.0.0` and set a strong password before
-starting. For an internet-facing installation, also put Waddle behind HTTPS. See
-[Security](security.md) and [Configuration](configuration.md#environment-variables).
+## Keep it private
 
-## Docker Compose with a 512 MB memory cap
+By default Waddle listens only on this machine at `127.0.0.1:8080`. To share it on a LAN, set a
+strong `WADDLE_PASSWORD` and bind to `0.0.0.0`. For internet access, put it behind HTTPS as well.
+Do not expose an unauthenticated Waddle or send passwords over plain HTTP. See
+[Security](security.md) before sharing it.
 
-The provided Compose setup binds Waddle to loopback, requires a password, runs as an unprivileged
-user, uses a read-only root filesystem, caps the container at 512 MB RAM, limits Node's heap to 320
-MB, and gives temporary files a 32 MB `tmpfs`. Its `small` profile lowers default pool work. The
-persistent `waddle-data` volume stores JSON configuration and live proxy/resolver state; raw source
-archives and unchecked candidates are not stored on disk. Waddle does not persist request logs or a
-page cache. These are resource limits and design targets, not a benchmark or a guarantee that every
-workload fits: peak memory depends on traffic and pool activity, and the container can be terminated
-if it exceeds its RAM cap. Persistent disk use has not been measured on a target host. Docker volumes
-do not have a portable Compose-level hard quota; apply a filesystem/volume quota at the host if you
-need a strict 1 GB enforcement.
+## Resource profile
 
-```sh
-git clone https://github.com/wuzzynizzy/Waddle.git
-cd Waddle
-cp .env.example .env
-# Edit .env and replace the placeholder with a unique, long random password.
-docker compose up -d --build
-```
+The launchers select `WADDLE_PROFILE=small`, which reduces background pool work and cache sizes. The
+320 MB Node heap is a limit on the V8 heap, **not** a cap on total process memory. Neither peak RAM nor
+disk use has been benchmarked on a target host, so treat these defaults as starting points, not a
+512 MB RAM or 1 GB storage guarantee. Waddle saves settings and live proxy/resolver state as JSON in
+`data`; raw source archives, page data and request logs are not persisted.
 
-Open <http://127.0.0.1:8080> on the host. To make it internet-facing, point your domain's DNS at the
-host and use a TLS reverse proxy. `Caddyfile.example` is a starting point for Caddy; it uses the
-requested hostname `waddle.wisp.uno` and obtains TLS automatically when DNS and ports 80/443 are
-correctly configured. Do not remove the password or expose port 8080 directly to the internet.
+## Backup and migration
 
-For a 512 MB RAM / 1 GB storage target, keep `WADDLE_PROFILE=small` (the Docker image's default),
-retain the Compose resource caps, and avoid raising `pool.target`, `pool.concurrency`, or `pool.perSource`
-beyond what the host can sustain. The settings panel shows the active profile and its ceilings. Measure
-RAM and volume growth on the intended workload before treating those budgets as met.
+Open **Settings → General → Backup & migration** and choose **Export full backup**. The versioned JSON
+includes server settings and sources plus this browser's bookmarks, saved addresses, history, tabs and
+appearance preferences. It excludes session cookies, request logs, live proxies, DNS cache and private
+server state. Keep the backup private because it may contain browsing history and custom sources.
 
-## Settings checkpoint and migration
+Choose **Restore backup** on another Waddle to migrate. The importer validates the format and
+sanitizes settings and URLs. It replaces the destination's server settings and this browser's local
+library, tabs and preferences. If browser storage is full or the server rejects the restore, local
+browser data is rolled back on a best-effort basis. See [the API description](api.md#server-settings-backup)
+for server-only backups.
 
-In the Waddle interface, open **Settings → General → Backup & migration** and choose **Export full
-backup**. The versioned JSON includes server settings and sources plus this browser's bookmarks,
-saved addresses, history, tabs and appearance preferences. It does not contain session cookies,
-request logs, live proxies, DNS cache or the Waddle server's private state. Keep the file private; it
-may include your browsing history and custom source list.
-
-Choose **Restore backup** on another Waddle to migrate it. The importer validates the version and
-sanitizes imported URLs/settings. The destination's server settings and the current browser's local
-library/tabs/preferences are replaced; session cookies and live proxy state are not moved. A local
-storage failure or server-side rejection restores the prior local browser data on a best-effort
-basis. See [the API description](api.md#server-settings-backup) for server-only backups.
-
-## Useful environment variables
+## Optional environment variables
 
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Listening port; default `8080`. |
-| `HOST` | Bind address; default `127.0.0.1`. Keep private unless protected by a password and TLS. |
-| `WADDLE_PASSWORD` | Require HTTP Basic authentication. Set this before sharing the service. |
+| `HOST` | Bind address; default `127.0.0.1`. |
+| `WADDLE_PASSWORD` | Require HTTP Basic authentication; set before sharing Waddle. |
 | `WADDLE_USER` | Basic-auth username; default `waddle`. |
-| `WADDLE_DATA` | Persistent data directory; default `./data` (or `/data` in Docker). |
-| `WADDLE_PROFILE` | `small` for a constrained host; standard limits otherwise. |
-| `WADDLE_HOME` | Installer destination (`~/.local/share/waddle` on macOS/Linux, `%LOCALAPPDATA%\Waddle` on Windows). |
-| `WADDLE_REF` | Git branch to install; defaults to `main`. |
+| `WADDLE_PROFILE` | `small` for lower default background work; `standard` for larger hosts. |
+| `WADDLE_HOME` | Installer destination. |
+| `WADDLE_OPEN_BROWSER` | Set to `0` to keep launchers from opening a browser. |
 
-See [configuration.md](configuration.md) for all settings and [security.md](security.md) before exposing Waddle publicly.
+See [Configuration](configuration.md) for advanced settings.

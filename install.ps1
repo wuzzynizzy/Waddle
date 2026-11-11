@@ -49,6 +49,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 if (-not $env:WADDLE_PROFILE) { $env:WADDLE_PROFILE = 'small' }
 if (-not $env:NODE_OPTIONS) { $env:NODE_OPTIONS = '--max-old-space-size=320' }
+if (-not $env:WADDLE_OPEN_BROWSER) { $env:WADDLE_OPEN_BROWSER = '1' }
 node .\server.js
 '@
   Set-Content -Path (Join-Path $destination 'run-waddle.ps1') -Value $runner -Encoding UTF8
@@ -57,13 +58,15 @@ node .\server.js
 cd /d "%~dp0"
 if not defined WADDLE_PROFILE set "WADDLE_PROFILE=small"
 if not defined NODE_OPTIONS set "NODE_OPTIONS=--max-old-space-size=320"
+if not defined WADDLE_OPEN_BROWSER set "WADDLE_OPEN_BROWSER=1"
 node server.js
 '@
   Set-Content -Path (Join-Path $destination 'run-waddle.cmd') -Value $runnerCmd -Encoding ASCII
+  Remove-Item -Path $temp -Recurse -Force -ErrorAction SilentlyContinue
   Write-Host "`nWaddle is installed in $destination"
-  Write-Host ('Start it with: "' + $destination + '\run-waddle.cmd"')
-  Write-Host 'Then open:     http://localhost:8080'
-  Write-Host 'It listens on this machine only by default. Set a strong WADDLE_PASSWORD before exposing it.'
+  Write-Host ('To start it again later: "' + $destination + '\run-waddle.cmd"')
+  Write-Host 'Starting Waddle and opening http://localhost:8080. Leave this window open; press Ctrl+C to stop.'
+  & (Join-Path $destination 'run-waddle.cmd')
 } finally {
   Remove-Item -Path $temp -Recurse -Force -ErrorAction SilentlyContinue
 }

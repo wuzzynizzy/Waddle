@@ -7,8 +7,8 @@ instead of yours.
 Waddle never contacts a site directly. If no proxy is available, the page does not load and Waddle
 says why.
 
-No runtime dependencies, no build step: run the single-file platform installer or start the source
-with `npm start`. Node.js 20 or newer is required.
+No runtime dependencies or build step: the one-command installer starts Waddle and opens your
+browser. From a checkout, use `start-waddle.sh` or `start-waddle.cmd`. Node.js 20 or newer is required.
 
 The interactive product tour is served at `/tour` when Waddle is running ·
 [Install and self-host guide](docs/installing.md) · [Source on GitHub](https://github.com/wuzzynizzy/Waddle)
@@ -21,28 +21,18 @@ The interactive product tour is served at `/tour` when Waddle is running ·
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh
-~/.local/share/waddle/run-waddle.sh
 ```
 
 ### Windows PowerShell
 
 ```powershell
 irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex
-& "$env:LOCALAPPDATA\Waddle\run-waddle.cmd"
 ```
 
-Both installers need Node.js 20 or newer and fetch the reviewed source from GitHub. They install a
-launcher rather than a standalone native binary. To run from source instead:
-
-```sh
-git clone https://github.com/wuzzynizzy/Waddle.git
-cd Waddle
-npm start
-```
-
-Open <http://localhost:8080>. Waddle was developed and tested on Node 22. The installers use the
-`small` resource profile and a 320 MB Node heap for constrained hosts. For Docker Compose, custom
-paths, passwords and TLS, see [Install and self-host](docs/installing.md).
+Each command installs Waddle, starts it, and opens `http://localhost:8080` in your browser. Keep the
+terminal open; `Ctrl+C` stops the server. Node.js 20 or newer is required. For a source checkout,
+clone the repository and run `./start-waddle.sh` (or `start-waddle.cmd` on Windows). See
+[Install and run](docs/installing.md) for the few details you might need.
 
 Give it a minute on the first start. Waddle downloads its proxy lists and tests what they offer, and
 the chip on the start page counts the proxies that passed. Pages load once it shows at least one.
@@ -217,15 +207,11 @@ correctness. Details and measured figures are in [docs/testing.md](docs/testing.
 
 ## Self-host and resource budget
 
-The provided Windows, macOS and Linux installers fetch source and create a launcher; Node.js 20+ is
-required. The Docker Compose example runs the `small` profile with a 512 MB container RAM cap, a 320
-MB Node heap and a 32 MB temporary filesystem. It keeps state in a persistent volume. The small
-profile bounds the live pool, concurrent checks, unchecked candidates and DNS cache; raw list archives
-and request logs are not written to disk, and page rendering, suggestions and the local library run
-in the user's browser. These defaults are designed for a 1 GB storage budget, but neither peak RAM
-nor disk use has been benchmarked on a target host. Docker volumes have no portable Compose-level hard
-quota; measure usage and apply a host filesystem quota if you need a firm limit. See
-[Install and self-host](docs/installing.md) for password, TLS, domain and migration steps.
+The platform installer fetches the source, starts Waddle and opens your browser; Node.js 20+ is all
+you need. The one-step launchers use the `small` profile and a 320 MB V8 heap limit. These are lighter
+defaults, not a guarantee of total RAM or disk use—neither has been benchmarked on a target host.
+Waddle listens on localhost by default. Set a strong password and add HTTPS before sharing it; see
+[Install and run](docs/installing.md).
 
 ## Limits worth knowing
 
@@ -254,7 +240,7 @@ quota; measure usage and apply a host filesystem quota if you need a firm limit.
 ## Documentation
 
 - [Product tour](public/tour.html): interactive route and resolver demos, installers and migration
-- [Install and self-host](docs/installing.md): Windows, macOS, Linux, Docker Compose, TLS and backups
+- [Install and run](docs/installing.md): one-command startup, passwords, privacy and backups
 - [Architecture](docs/architecture.md): how a request travels, how the pool works
 - [Configuration](docs/configuration.md): environment variables and every setting
 - [HTTP API](docs/api.md): what the settings panel talks to, including versioned backups
