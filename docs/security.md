@@ -143,7 +143,8 @@ proxied pages by default. Sites' own service workers are not served.
 - **Referer.** By default another site is told only the origin of the page a request came from, not
   its full address. It can be told nothing at all.
 - **Do Not Track and Global Privacy Control** are sent.
-- **New identity** drops cookies, the fingerprint, exits and cached lookups together.
+- **New identity** drops cookies, the fingerprint, exits and cached lookups, and clears browser-local
+  history and extra tabs. It keeps bookmarks, saved addresses and frontend preferences.
 
 ## What a site can still tell
 
@@ -175,15 +176,19 @@ that keeps one site's scripts away from another's does not apply between them.
 - A script on one proxied site that sets out to can reach what another proxied site stored in the
   browser (local storage, IndexedDB), and can ask Waddle for pages of other sites using your cookies
   for them.
-- Waddle's settings API lives at the same address. The page script refuses requests from proxied
-  pages to it, which stops ordinary page code, but that is Waddle's own check and not one the browser
-  enforces. A script written to get around the page script could change the route, add a proxy or
-  clear cookies.
+- Waddle's settings and Inspector APIs live at the same address. The page script refuses direct
+  requests from proxied pages to them, which stops ordinary page code, but that is Waddle's own
+  check and not one the browser enforces. A script that gets around it may change the route, add a
+  proxy or clear cookies; the Inspector API also contains recent request URLs and non-HttpOnly cookie
+  values for the selected site.
+- Waddle's bookmarks, saved addresses, history, open-tab state and frontend preferences are kept in
+  the shell's browser `localStorage`. Waddle does not upload this library to its server, but it is
+  still same-origin data and a malicious proxied page may be able to reach it.
 
 Waddle limits this where it can. Site cookies are kept on the server and filtered per site, cookies
-marked `HttpOnly` never reach scripts, local and session storage are given a separate namespace per
-site, and the password is never exposed to pages. It cannot make the pages strangers to each other
-without giving every site its own hostname, which a single address cannot do.
+marked `HttpOnly` never reach page scripts, and local and session storage are given a separate
+namespace per site. The password is never exposed to pages. It cannot make the pages strangers to
+each other without giving every site its own hostname, which a single address cannot do.
 
 In practice: use Waddle for reading, not for accounts you care about, and do not browse a site you
 distrust in the same session as one you are signed into.

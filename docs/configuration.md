@@ -274,6 +274,33 @@ Search presets: DuckDuckGo, Brave, Startpage, Mojeek, Google and Bing, or any ad
 **Blank-address tab** opens Waddle in a tab whose address reads `about:blank`. **Reset everything**
 restores every default, including the source list.
 
+## Browser-local features
+
+The library and presentation preferences below live in this browser's `localStorage`; they are not
+part of `data/config.json` and are not sent to Waddle's server. **Reset frontend settings** resets
+only the appearance and start-page preferences. **New identity** clears local history and closes
+extra Waddle tabs, while preserving bookmarks, saved addresses and frontend preferences. Saved pages
+are addresses for later, not offline copies.
+
+- **Tabs:** up to 16 open Waddle tabs, with separate current addresses and back/forward history.
+  The state is restored when the shell reloads.
+- **Library:** bookmarks (with folders, JSON export and browser-bookmark HTML or Waddle JSON import),
+  a searchable history, and a Saved read-later list. The toolbar bookmark icon toggles the current bookmark.
+- **Appearance:** accent (`orange`, `blue`, `violet`, `teal`, `rose`), density (`comfortable`,
+  `compact`, `spacious`), text size (`small`, `normal`, `large`) and tab-strip position (`top`,
+  `bottom`).
+- **Start page:** show or hide quick links, local recommendations and status chips. Recommendations
+  and typing suggestions match this browser's open tabs, bookmarks, saved addresses and history.
+- **External suggestions:** DuckDuckGo suggestions are off by default. When enabled, after a pause
+  while typing at least three characters, the query is sent to DuckDuckGo through the current proxy
+  exit. The selected search engine still receives a query when you submit a search.
+- **Keyboard shortcuts:** `Ctrl/⌘+T` new tab, `Ctrl/⌘+W` close tab, `Ctrl/⌘+L` address bar,
+  `Ctrl/⌘+Shift+I` Inspect, `Ctrl/⌘+D` bookmark, and `Alt+Left/Right` back or forward. The panic
+  key remains configurable as `ui.panicKey` in the server settings above.
+
+Waddle's single-origin design means a malicious proxied page may be able to reach browser-local data;
+see [Security](security.md#one-origin-for-everything) before using the library for sensitive records.
+
 ## Files
 
 | File               | Contents                                                            |

@@ -998,6 +998,211 @@ try {
   await page.click('#reload');
   f = await waitFrame(() => document.title === 'Page 2' && /noproxy=1/.test(document.getElementById('p2').textContent), null, 12000);
   check('a proxy added by hand brings the page back', true);
+
+  // ---- browser tabs, local library, inspection and frontend preferences
+  await page.keyboard.press('Escape');
+  await goTo(SITE + '/tour');
+  f = await waitFrame(() => document.title === 'Field notes' && document.querySelector('img') && document.querySelector('img').complete);
+  check('one browser tab starts open', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 1);
+  await page.click('#newTab');
+  await page.waitForFunction(() => document.querySelectorAll('#tabbar .tabgroup').length === 2);
+  check('the plus button opens a second Waddle tab', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 2);
+  await goTo(SITE + '/page2?tab=one');
+  f = await waitFrame(() => document.title === 'Page 2' && /tab=one/.test(document.body.textContent));
+  await goTo(SITE + '/page2?tab=two');
+  f = await waitFrame(() => document.title === 'Page 2' && /tab=two/.test(document.body.textContent));
+  await page.click('#back');
+  await page.waitForFunction(() => document.getElementById('addr').value.endsWith('page2?tab=one'));
+  check('each tab has its own back and forward history', true);
+  await page.evaluate(() => document.querySelector('#tabbar .browser-tab').click());
+  f = await waitFrame(() => document.title === 'Field notes');
+  check('switching tabs restores the page in the first tab', (await addrBar()) === SITE + '/tour');
+  await f.evaluate(() => {
+    const a = document.createElement('a');
+    a.id = 'open-in-waddle-tab';
+    a.href = '/tour?from=new-tab';
+    a.target = '_blank';
+    a.textContent = 'Open a separate tab';
+    document.body.appendChild(a);
+  });
+  await f.click('#open-in-waddle-tab');
+  await page.waitForFunction(() => document.querySelectorAll('#tabbar .tabgroup').length === 3);
+  await page.waitForFunction(() => document.getElementById('addr').value.includes('from=new-tab'));
+  f = await waitFrame(() => document.title === 'Field notes');
+  check(
+    'a page link targeting a new window opens a Waddle tab',
+    (await addrBar()).includes('from=new-tab') && (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 3
+  );
+  check('the active tab shows its own exit status', await page.$eval('#tabbar .tabgroup.active .dot', (n) => n.classList.contains('ok')));
+  await page.click('#bookmark');
+  check(
+    'the toolbar star adds a browser-local bookmark',
+    await page.evaluate(() => WaddleLocal.get().bookmarks.some((x) => /from=new-tab/.test(x.url)))
+  );
+  await page.click('#library');
+  await page.waitForSelector('#libraryPanel:not([hidden])');
+  check('the library lists the saved bookmark', await page.$eval('#libraryContent', (n) => /from=new-tab/.test(n.textContent)));
+  await page.type('#newFolder', 'Research');
+  await page.click('#libraryContent .folder-tools .btn');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('#libraryContent .library-select option')].some((x) => x.value === 'Research')
+  );
+  await page.select('#libraryContent .library-filters .library-select', 'All');
+  await page.select('#libraryContent .folder-select', 'Research');
+  check('bookmarks can be organised into folders', await page.$eval('#libraryContent', (n) => /Research/.test(n.textContent)));
+  await shot('library');
+  const exportText = await page.evaluate(async () => {
+    const createObjectURL = URL.createObjectURL;
+    let content = Promise.resolve('');
+    URL.createObjectURL = function (blob) {
+      content = blob.text();
+      return createObjectURL.call(URL, blob);
+    };
+    try {
+      [...document.querySelectorAll('#libraryContent button')].find((b) => b.textContent === 'Export JSON').click();
+      return await content;
+    } finally {
+      URL.createObjectURL = createObjectURL;
+    }
+  });
+  const exportData = JSON.parse(exportText);
+  check(
+    'bookmarks can be exported as JSON',
+    exportData.format === 'waddle-bookmarks' && exportData.version === 1 && exportData.bookmarks.length > 0
+  );
+  const importFile = '/tmp/waddle-bookmark-import.json';
+  fs.writeFileSync(
+    importFile,
+    JSON.stringify({
+      format: 'waddle-bookmarks',
+      version: 1,
+      folders: ['Imported'],
+      bookmarks: [{ url: 'https://example.org/read-later', title: 'Imported bookmark', folder: 'Imported' }],
+    })
+  );
+  await (await page.$('#libraryContent input[type="file"]')).uploadFile(importFile);
+  await page.waitForFunction(() => WaddleLocal.get().bookmarks.some((x) => x.url === 'https://example.org/read-later'));
+  check('a browser bookmarks JSON file can be imported', true);
+  const htmlImportFile = '/tmp/waddle-bookmark-import.html';
+  fs.writeFileSync(
+    htmlImportFile,
+    '<!doctype NETSCAPE-Bookmark-file-1><DL><p><DT><A HREF="https://example.net/from-html">HTML bookmark</A></DL>'
+  );
+  await (await page.$('#libraryContent input[type="file"]')).uploadFile(htmlImportFile);
+  await page.waitForFunction(() => WaddleLocal.get().bookmarks.some((x) => x.url === 'https://example.net/from-html'));
+  check('browser bookmark HTML can be imported', true);
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#libraryContent button')].find((b) => b.textContent === 'Save for later').click()
+  );
+  await page.click('#libraryTabs button:nth-child(2)');
+  await page.waitForFunction(() => document.querySelector('#libraryContent').textContent.includes('Field notes'));
+  check(
+    'a page can be saved for later without downloading it',
+    await page.$eval('#libraryContent', (n) => /Field notes/.test(n.textContent))
+  );
+  await page.click('#libraryTabs button:nth-child(3)');
+  await page.waitForFunction(() => document.querySelectorAll('#libraryContent .library-entry').length > 0);
+  await page.type('#libraryContent .library-search', 'Field notes');
+  check('local history can be searched by page title', await page.$eval('#libraryContent', (n) => /Field notes/.test(n.textContent)));
+
+  // A page's requests, upstream headers, cookies and rewritten source are available in the inspector.
+  await page.keyboard.press('Escape');
+  await goTo(SITE + '/');
+  f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);
+  await page.click('#library');
+  await page.click('#libraryTabs button:nth-child(4)');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('#inspectorBody .inspect-request')].some((n) => n.textContent.includes('/'))
+  );
+  await shot('inspect');
+  check(
+    'inspect lists requests with status, type, bytes, time and exit',
+    await page.$eval('#inspectorBody', (n) => /200/.test(n.textContent) && /US/.test(n.textContent) && /ms/.test(n.textContent))
+  );
+  await page.click('#libraryContent .inspect-tabs button:nth-child(2)');
+  check('inspect shows response headers', await page.$eval('#inspectorBody', (n) => /content-type/.test(n.textContent)));
+  await page.click('#libraryContent .inspect-tabs button:nth-child(3)');
+  await page.waitForFunction(() => document.querySelector('#inspectorBody').textContent.includes('sid'));
+  check(
+    'inspect shows cookie names and hides HttpOnly values',
+    await page.$eval('#inspectorBody', (n) => /value hidden/.test(n.textContent))
+  );
+  await page.click('#libraryContent .inspect-tabs button:nth-child(4)');
+  check(
+    'inspect shows the rewritten page source without its private bootstrap',
+    await page.$eval('#inspectorBody', (n) => /Fixture/.test(n.textContent) && /Waddle bootstrap omitted/.test(n.textContent))
+  );
+  await page.click('#libraryClose');
+
+  // A start page built only from this browser's local library, with web suggestions off by default.
+  await page.click('#home');
+  await page.waitForFunction(() => !document.getElementById('homePicks').hidden);
+  await page.type('#q', 'Field notes');
+  await page.waitForSelector('#suggestions .suggest-item');
+  await shot('recommendations');
+  check(
+    'local recommendations and address suggestions use this browser’s library',
+    await page.$eval('#suggestions', (n) => /Bookmark|History|Saved|Open tab/.test(n.textContent))
+  );
+  check('external web suggestions are opt-in', await page.evaluate(() => WaddleLocal.preferences().externalSuggestions === false));
+  await page.click('#gear');
+  await tabTo('General');
+  await shot('frontend-settings');
+  await press('local.accent');
+  await page.waitForSelector('#panel .dd-opt');
+  await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Blue').click());
+  check(
+    'accent colour applies immediately and stays in this browser',
+    await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#3578d4')
+  );
+  await press('local.density');
+  await page.waitForSelector('#panel .dd-opt');
+  await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Compact').click());
+  await press('local.textSize');
+  await page.waitForSelector('#panel .dd-opt');
+  await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Large').click());
+  check(
+    'density and text size are configurable',
+    await page.evaluate(
+      () => document.documentElement.dataset.density === 'compact' && document.documentElement.dataset.textSize === 'large'
+    )
+  );
+  await press('local.tabPosition');
+  await page.waitForSelector('#panel .dd-opt');
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Below the page').click()
+  );
+  check(
+    'the browser tab strip can move below the page',
+    await page.evaluate(
+      () => document.body.dataset.tabPosition === 'bottom' && getComputedStyle(document.querySelector('#tabbar')).order === '4'
+    )
+  );
+  await press('local.showStatus');
+  check('start-page status chips can be hidden', await page.$eval('#chips', (n) => n.hidden));
+  await press('local.showStatus');
+  await press('local.showLinks');
+  check('quick links can be hidden', await page.$eval('#links', (n) => n.hidden));
+  await press('local.showLinks');
+  await press('btn:Reset frontend settings');
+  await page.waitForFunction(() => WaddleLocal.preferences().accent === 'orange' && WaddleLocal.preferences().tabPosition === 'top');
+  check(
+    'frontend preferences can be reset without changing server config',
+    app.config.value.ui.theme === 'auto' && app.config.value.ui.links.length > 0
+  );
+  await page.click('#gear');
+
+  // New identity clears history and site data, but keeps bookmarks and read-later items.
+  await page.click('#fresh');
+  await page.click('#fresh');
+  await page.waitForFunction(() => WaddleLocal.get().history.length === 0);
+  check('New identity clears local browsing history', await page.evaluate(() => WaddleLocal.get().history.length === 0));
+  check(
+    'New identity keeps bookmarks and saved pages',
+    await page.evaluate(() => WaddleLocal.get().bookmarks.length > 0 && WaddleLocal.get().saved.length > 0)
+  );
+  check('New identity closes extra Waddle tabs', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 1);
+
   await page.keyboard.press('Escape');
 
   // ---- nothing reached the fixture except through the exit

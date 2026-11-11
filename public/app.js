@@ -33,7 +33,18 @@
   var addr = $('#addr');
   var state = null; // last /-/api/state
   var current = ''; // real URL shown in the frame
-  var tab = 'route';
+  var tab = 'route'; // active settings drawer tab
+  var local = window.WaddleLocal;
+  var frontend = local ? local.preferences() : {};
+  var browserTabs = restoreBrowserTabs();
+  var activeBrowserTabId = storedActiveTab();
+  var libraryTab = 'bookmarks';
+  var librarySearch = '';
+  var libraryFolder = 'All';
+  var inspectorView = 'requests';
+  var inspectData = { requests: [], cookies: [] };
+  var inspectRequestId = '';
+  var suppressNextLocalVisit = false;
   var extra = {}; // transient results (speed test, dns test)
   var drafts = {}; // text typed into the drawer but not yet submitted, by element id
   var writes = 0; // settings changes made here; a state reply that predates one is stale
@@ -84,6 +95,322 @@
     }, 2600);
   }
 
+  // Browser tabs and their URL history are private to this browser. Site history, bookmarks and saved pages
+  // live separately in WaddleLocal so New identity can erase history without erasing the library.
+  var TAB_KEY = 'waddle.tabs.v1';
+  var ACTIVE_TAB_KEY = 'waddle.active-tab.v1';
+  function newTabRecord() {
+    return { id: makeId(), url: '', title: 'New tab', history: [], index: -1, route: null };
+  }
+  function makeId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    } catch (e) {
+      /* unavailable */
+    }
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+  function restoreBrowserTabs() {
+    var list = [];
+    try {
+      list = JSON.parse(localStorage.getItem(TAB_KEY) || '[]');
+    } catch (e) {
+      list = [];
+    }
+    if (!Array.isArray(list)) list = [];
+    list = list.slice(0, 16).map(function (x) {
+      var history = Array.isArray(x.history)
+        ? x.history
+            .slice(-100)
+            .map(function (h) {
+              var url = local ? local.cleanUrl(h && h.url) : '';
+              return url ? { url: url, title: String((h && h.title) || url).slice(0, 200), at: Number((h && h.at) || Date.now()) } : null;
+            })
+            .filter(Boolean)
+        : [];
+      var url = local ? local.cleanUrl(x.url || '') : '';
+      var index = Math.max(-1, Math.min(history.length - 1, Number(x.index)));
+      return {
+        id: String(x.id || makeId()),
+        url: url,
+        title: String(x.title || (url ? url.replace(/^https?:\/\//, '') : 'New tab')).slice(0, 200),
+        history: history,
+        index: index,
+        route: x.route && typeof x.route === 'object' ? x.route : null,
+      };
+    });
+    return list.length ? list : [newTabRecord()];
+  }
+  function storedActiveTab() {
+    var id = '';
+    try {
+      id = localStorage.getItem(ACTIVE_TAB_KEY) || '';
+    } catch (e) {
+      /* storage unavailable */
+    }
+    return browserTabs.some(function (x) {
+      return x.id === id;
+    })
+      ? id
+      : browserTabs[0].id;
+  }
+  function activeBrowserTab() {
+    return (
+      browserTabs.filter(function (x) {
+        return x.id === activeBrowserTabId;
+      })[0] || browserTabs[0]
+    );
+  }
+  function persistBrowserTabs() {
+    try {
+      localStorage.setItem(TAB_KEY, JSON.stringify(browserTabs));
+      localStorage.setItem(ACTIVE_TAB_KEY, activeBrowserTabId);
+    } catch (e) {
+      /* storage unavailable */
+    }
+  }
+  function tabRoute(tabInfo) {
+    if (!tabInfo || !tabInfo.route) return null;
+    return tabInfo.route;
+  }
+  function renderBrowserTabs() {
+    var host = $('#tabbar');
+    if (!host) return;
+    host.textContent = '';
+    browserTabs.forEach(function (t) {
+      var group = el('div', { class: 'tabgroup' + (t.id === activeBrowserTabId ? ' active' : '') });
+      var route = tabRoute(t);
+      var tabButton = el(
+        'button',
+        {
+          class: 'browser-tab',
+          role: 'tab',
+          'aria-selected': String(t.id === activeBrowserTabId),
+          'aria-label': t.title || 'New tab',
+          title: t.url || 'New tab',
+          onclick: function () {
+            switchBrowserTab(t.id);
+          },
+        },
+        [el('i', { class: 'dot ' + (route ? (route.ok ? 'ok' : 'bad') : '') }), el('span', { text: t.title || 'New tab' })]
+      );
+      group.appendChild(tabButton);
+      group.appendChild(
+        el('button', {
+          class: 'tab-close',
+          title: 'Close tab',
+          'aria-label': 'Close ' + (t.title || 'New tab'),
+          text: '×',
+          onclick: function (e) {
+            e.stopPropagation();
+            closeBrowserTab(t.id);
+          },
+        })
+      );
+      host.appendChild(group);
+    });
+    var active = activeBrowserTab();
+    $('#back').disabled = !active || active.index < 0 || (active.url && active.index <= 0);
+    $('#fwd').disabled = !active || active.index < 0 || active.index >= active.history.length - 1;
+    host.appendChild(
+      el('button', {
+        id: 'newTab',
+        class: 'new-tab',
+        title: 'New tab (Ctrl+T)',
+        'aria-label': 'New tab',
+        text: '+',
+        onclick: function () {
+          createBrowserTab();
+        },
+      })
+    );
+  }
+  function rememberTabUrl(url, title, mode) {
+    var t = activeBrowserTab();
+    if (!t) return;
+    if (!url) {
+      t.url = '';
+      t.title = 'New tab';
+      persistBrowserTabs();
+      renderBrowserTabs();
+      updateBookmarkButton();
+      return;
+    }
+    url = local ? local.cleanUrl(url) : url;
+    if (!url) return;
+    mode = mode || 'push';
+    var found = -1;
+    if (mode === 'pop') {
+      for (var i = t.history.length - 1; i >= 0; i--) {
+        if (t.history[i].url === url) {
+          found = i;
+          break;
+        }
+      }
+    }
+    if (mode === 'pop' && found >= 0) t.index = found;
+    else if (mode === 'replace' && t.index >= 0) {
+      t.history[t.index] = { url: url, title: title || t.title || url, at: Date.now() };
+    } else if (t.history[t.index] && t.history[t.index].url === url) {
+      if (title) t.history[t.index].title = title;
+    } else {
+      t.history = t.history.slice(0, t.index + 1);
+      t.history.push({ url: url, title: title || url, at: Date.now() });
+      if (t.history.length > 100) t.history.shift();
+      t.index = t.history.length - 1;
+      if (local && mode !== 'pop') local.visit(url, title || url);
+    }
+    t.url = url;
+    if (title) t.title = String(title).slice(0, 200);
+    else if (!t.title || t.title === 'New tab') {
+      try {
+        t.title = new URL(url).hostname;
+      } catch (e) {
+        t.title = url;
+      }
+    }
+    persistBrowserTabs();
+    renderBrowserTabs();
+    updateBookmarkButton();
+    renderHomePicks();
+  }
+  function updateCurrentTitle(title) {
+    var t = activeBrowserTab();
+    if (!t || !current || !title) return;
+    t.title = String(title).slice(0, 200);
+    if (t.index >= 0 && t.history[t.index] && t.history[t.index].url === current) t.history[t.index].title = t.title;
+    persistBrowserTabs();
+    renderBrowserTabs();
+    if (local) {
+      if (suppressNextLocalVisit) suppressNextLocalVisit = false;
+      else local.visit(current, t.title);
+    }
+    renderHomePicks();
+  }
+  function loadUrl(url) {
+    loading(true);
+    frame.src =
+      url.indexOf(CHECK) === 0
+        ? P + CHECK + '?' + Date.now().toString(36) + '#' + encodeURIComponent(JSON.stringify(realValues()))
+        : P + url;
+    addr.blur();
+  }
+  function createBrowserTab(url) {
+    if (browserTabs.length >= 16) {
+      toast('You can have up to 16 tabs open');
+      return;
+    }
+    var t = newTabRecord();
+    browserTabs.push(t);
+    activeBrowserTabId = t.id;
+    persistBrowserTabs();
+    renderBrowserTabs();
+    current = '';
+    show('');
+    frame.removeAttribute('src');
+    try {
+      frame.contentWindow.location.replace('about:blank');
+    } catch (e) {
+      /* gone */
+    }
+    loading(false);
+    if ($('#drawer')) $('#drawer').hidden = true;
+    if ($('#libraryPanel')) $('#libraryPanel').hidden = true;
+    if (url) go(url);
+    else {
+      $('#q').value = '';
+      $('#q').focus();
+    }
+    return t;
+  }
+  function switchBrowserTab(id) {
+    if (id === activeBrowserTabId) return;
+    var next = browserTabs.filter(function (x) {
+      return x.id === id;
+    })[0];
+    if (!next) return;
+    if (current) rememberTabUrl(current, activeBrowserTab().title, 'replace');
+    activeBrowserTabId = id;
+    persistBrowserTabs();
+    renderBrowserTabs();
+    current = next.url || '';
+    show(current);
+    setTitle(next.title === 'New tab' ? '' : next.title);
+    if (current) loadUrl(current);
+    else {
+      frame.removeAttribute('src');
+      try {
+        frame.contentWindow.location.replace('about:blank');
+      } catch (e) {
+        /* gone */
+      }
+      loading(false);
+      $('#q').focus();
+    }
+    updateBookmarkButton();
+    if (!$('#libraryPanel').hidden && libraryTab === 'inspect') refreshInspector();
+  }
+  function closeBrowserTab(id) {
+    var i = browserTabs.findIndex(function (x) {
+      return x.id === id;
+    });
+    if (i < 0) return;
+    var wasActive = id === activeBrowserTabId;
+    browserTabs.splice(i, 1);
+    if (!browserTabs.length) browserTabs.push(newTabRecord());
+    if (wasActive) {
+      var next = browserTabs[Math.min(i, browserTabs.length - 1)];
+      activeBrowserTabId = next.id;
+      persistBrowserTabs();
+      current = next.url || '';
+      renderBrowserTabs();
+      show(current);
+      setTitle(next.title === 'New tab' ? '' : next.title);
+      if (current) loadUrl(current);
+      else {
+        frame.removeAttribute('src');
+        try {
+          frame.contentWindow.location.replace('about:blank');
+        } catch (e) {
+          /* gone */
+        }
+        loading(false);
+      }
+    } else {
+      persistBrowserTabs();
+      renderBrowserTabs();
+    }
+    updateBookmarkButton();
+  }
+  function tabBack() {
+    var t = activeBrowserTab();
+    if (!t) return;
+    var i = t.index;
+    if (i < 0) return;
+    if (current && i > 0) i--;
+    t.index = i;
+    var item = t.history[i];
+    if (!item) return;
+    t.url = item.url;
+    t.title = item.title;
+    persistBrowserTabs();
+    show(item.url);
+    setTitle(item.title);
+    loadUrl(item.url);
+  }
+  function tabForward() {
+    var t = activeBrowserTab();
+    if (!t || t.index < 0 || t.index >= t.history.length - 1) return;
+    t.index++;
+    var item = t.history[t.index];
+    t.url = item.url;
+    t.title = item.title;
+    persistBrowserTabs();
+    show(item.url);
+    setTitle(item.title);
+    loadUrl(item.url);
+  }
+
   // ---- navigation -----------------------------------------------------------------
   var shown = function (url) {
     return url.indexOf(CHECK) === 0 ? CHECK_NAME : url;
@@ -128,21 +455,23 @@
   function loading(on) {
     document.body.classList.toggle('loading', !!on);
   }
-  function go(text) {
+  function go(text, options) {
+    options = options || {};
     var url = resolve(text);
     if (!url) return;
+    if (options.newTab) createBrowserTab();
+    var mode = options.mode || 'push';
+    rememberTabUrl(url, '', mode);
     show(url);
-    loading(true);
-    // The check page compares what a site can read with what this browser really is; the real values
-    // travel in the fragment, which never leaves the browser.
-    frame.src =
-      url.indexOf(CHECK) === 0
-        ? P + CHECK + '?' + Date.now().toString(36) + '#' + encodeURIComponent(JSON.stringify(realValues()))
-        : P + url;
-    addr.blur();
+    setTitle('');
+    loadUrl(url);
+    if ($('#libraryPanel') && !$('#libraryPanel').hidden && libraryTab === 'inspect') refreshInspector();
   }
   function home() {
+    current = '';
+    rememberTabUrl('', '', 'replace');
     show('');
+    setTitle('');
     loading(false);
     frame.removeAttribute('src');
     try {
@@ -158,10 +487,10 @@
     if (!current) return;
     loading(true);
     try {
-      if (current.indexOf(CHECK) === 0) go(CHECK_NAME);
+      if (current.indexOf(CHECK) === 0) go(CHECK_NAME, { mode: 'replace' });
       else frame.contentWindow.location.reload();
     } catch (e) {
-      frame.src = P + current;
+      loadUrl(current);
     }
   }
   function rotate() {
@@ -178,46 +507,45 @@
   }
   $('#nav').addEventListener('submit', function (e) {
     e.preventDefault();
+    closeSuggestions();
     go(addr.value);
   });
   $('#start').addEventListener('submit', function (e) {
     e.preventDefault();
+    closeSuggestions();
     go($('#q').value);
   });
   addr.addEventListener('focus', function () {
     addr.select();
+    showSuggestions(addr.value, 'address');
   });
   $('#home').addEventListener('click', home);
-  $('#back').addEventListener('click', function () {
-    try {
-      frame.contentWindow.history.back();
-    } catch (e) {
-      /* cross-origin */
-    }
-  });
-  $('#fwd').addEventListener('click', function () {
-    try {
-      frame.contentWindow.history.forward();
-    } catch (e) {
-      /* cross-origin */
-    }
-  });
+  $('#back').addEventListener('click', tabBack);
+  $('#fwd').addEventListener('click', tabForward);
   $('#reload').addEventListener('click', reload);
   $('#rotate').addEventListener('click', function () {
     rotate().catch(function () {});
+  });
+  $('#bookmark').addEventListener('click', toggleCurrentBookmark);
+  $('#library').addEventListener('click', function () {
+    openLibrary('bookmarks');
+  });
+  $('#libraryClose').addEventListener('click', function () {
+    $('#libraryPanel').hidden = true;
   });
   frame.addEventListener('load', function () {
     loading(false);
     refresh();
     try {
       var w = frame.contentWindow;
-      w.addEventListener('keydown', onKey, true); // the panic key works while a page has the focus too
+      w.addEventListener('keydown', onKey, true); // panic and browser shortcuts work while a page has focus too
       // pages without the page script (errors, downloads) still report where they are
       var href = w.location.href;
       var at = href.indexOf(P);
       if (at >= 0 && href.indexOf(location.origin) === 0) {
         var real = href.slice(at + P.length).replace(/^f\/(?=https?:\/)/i, '');
         current = real.indexOf(CHECK) === 0 ? CHECK : real;
+        rememberTabUrl(current, w.document.title || '', 'push');
         if (document.activeElement !== addr) addr.value = shown(current);
         setLock(current);
       }
@@ -238,12 +566,18 @@
       act(m);
       return;
     }
+    if (m.kind === 'open') {
+      createBrowserTab(m.url || '');
+      return;
+    }
     if (m.kind === 'leave') {
       loading(true);
       return;
     }
     if (m.url) {
       current = m.url.indexOf(CHECK) === 0 ? CHECK : m.url;
+      var historyMode = m.kind === 'replace' ? 'replace' : m.kind === 'pop' ? 'pop' : 'push';
+      rememberTabUrl(current, m.title || '', historyMode);
       if (document.activeElement !== addr) addr.value = shown(current);
       setLock(current);
       try {
@@ -251,6 +585,7 @@
       } catch (err) {
         /* sandboxed */
       }
+      if (!$('#libraryPanel').hidden && libraryTab === 'inspect') refreshInspector();
     }
     setTitle(m.title || '');
     if (m.kind === 'start') loading(true);
@@ -343,6 +678,7 @@
   var pageTitle = '';
   function setTitle(t) {
     pageTitle = t || '';
+    if (pageTitle) updateCurrentTitle(pageTitle);
     dress();
   }
   function dress() {
@@ -384,6 +720,35 @@
     }
   }
   var capturing = null; // set while the settings wait for the key that is to be the panic key
+  function handleBrowserShortcut(e) {
+    var mod = e.ctrlKey || e.metaKey;
+    if (e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      e.stopPropagation();
+      tabBack();
+      return true;
+    }
+    if (e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      e.stopPropagation();
+      tabForward();
+      return true;
+    }
+    if (!mod || e.altKey) return false;
+    var key = String(e.key || '').toLowerCase();
+    if (key === 't') createBrowserTab();
+    else if (key === 'w') closeBrowserTab(activeBrowserTabId);
+    else if (key === 'l') {
+      if (!document.body.classList.contains('browsing')) show('');
+      addr.focus();
+      addr.select();
+    } else if (key === 'd') toggleCurrentBookmark();
+    else if (key === 'i' && e.shiftKey) openLibrary('inspect');
+    else return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
   function onKey(e) {
     if (capturing) {
       e.preventDefault();
@@ -399,7 +764,9 @@
       e.preventDefault();
       e.stopPropagation();
       panic();
+      return;
     }
+    handleBrowserShortcut(e);
   }
   document.addEventListener('keydown', onKey, true);
   /** Open Waddle inside a tab whose address reads about:blank. */
@@ -478,9 +845,16 @@
   /** Everything proxied pages left in this browser. The server forgets its side in the same breath. */
   function wipe() {
     try {
-      var theme = localStorage.getItem('waddle.theme');
+      var keep = ['waddle.theme', local && local.keys.library, local && local.keys.preferences].filter(Boolean);
+      var saved = {};
+      keep.forEach(function (key) {
+        var value = localStorage.getItem(key);
+        if (value != null) saved[key] = value;
+      });
       localStorage.clear();
-      if (theme) localStorage.setItem('waddle.theme', theme);
+      Object.keys(saved).forEach(function (key) {
+        localStorage.setItem(key, saved[key]);
+      });
     } catch (e) {
       /* storage is off */
     }
@@ -512,8 +886,21 @@
   function newIdentity() {
     return api('identity', {}).then(function (s) {
       wipe();
+      if (local) local.clearHistory();
+      var active = activeBrowserTab();
+      browserTabs = [active || newTabRecord()];
+      activeBrowserTabId = browserTabs[0].id;
+      browserTabs[0].history = current ? [{ url: current, title: pageTitle || current, at: Date.now() }] : [];
+      browserTabs[0].index = current ? 0 : -1;
+      browserTabs[0].url = current;
+      browserTabs[0].title = current ? pageTitle || current : 'New tab';
+      browserTabs[0].route = null;
+      persistBrowserTabs();
+      renderBrowserTabs();
       extra = {};
+      suppressNextLocalVisit = !!current;
       apply(s, true);
+      renderHomePicks();
       toast('New identity');
       if (current) reload();
       return s;
@@ -565,9 +952,41 @@
     var last = p.last;
     var health = HEALTH[p.health] || HEALTH.searching;
     var browsing = document.body.classList.contains('browsing');
-    $('#route i').className = 'dot ' + (browsing && last ? (last.error ? 'bad' : 'ok') : health[0]);
-    $('#route span').textContent = browsing && last ? hops(last) : p.alive ? p.alive + (p.alive === 1 ? ' proxy' : ' proxies') : health[1];
-    $('#route').title = browsing && last && last.error && last.detail ? last.detail : 'Route';
+    var tabInfo = activeBrowserTab();
+    if (browsing && last && tabInfo && new URL(current).host === last.host) {
+      tabInfo.route = { ok: !last.error, label: hops(last), host: last.host, at: last.at, detail: last.detail || last.error || '' };
+      persistBrowserTabs();
+      renderBrowserTabs();
+    }
+    var routeInfo = browsing && tabInfo && tabInfo.route ? tabInfo.route : null;
+    var matchingLast =
+      browsing &&
+      last &&
+      (function () {
+        try {
+          return new URL(current).host === last.host;
+        } catch (e) {
+          return false;
+        }
+      })()
+        ? last
+        : null;
+    $('#route i').className =
+      'dot ' + (routeInfo ? (routeInfo.ok ? 'ok' : 'bad') : matchingLast ? (matchingLast.error ? 'bad' : 'ok') : health[0]);
+    $('#route span').textContent =
+      browsing && routeInfo
+        ? routeInfo.label
+        : browsing && matchingLast
+          ? hops(matchingLast)
+          : p.alive
+            ? p.alive + (p.alive === 1 ? ' proxy' : ' proxies')
+            : health[1];
+    $('#route').title =
+      routeInfo && routeInfo.detail
+        ? routeInfo.detail
+        : matchingLast && matchingLast.error && matchingLast.detail
+          ? matchingLast.detail
+          : 'Route';
 
     var chips = $('#chips');
     chips.textContent = '';
@@ -606,13 +1025,168 @@
         )
       );
     });
-    links.hidden = !links.firstChild;
+    links.hidden = !links.firstChild || !frontend.showLinks;
     links.style.setProperty('--n', String(Math.min(4, links.childNodes.length || 1)));
+    $('#chips').hidden = !frontend.showStatus;
 
     setTheme(c.ui.theme);
+    applyFrontendPrefs();
+    renderHomePicks();
     dress();
     if (!$('#drawer').hidden) render(force);
   }
+  function applyFrontendPrefs() {
+    if (!local) return;
+    frontend = local.preferences();
+    var root = document.documentElement;
+    root.setAttribute('data-accent', frontend.accent);
+    root.setAttribute('data-density', frontend.density);
+    root.setAttribute('data-text-size', frontend.textSize);
+    document.body.setAttribute('data-tab-position', frontend.tabPosition);
+    var color = local.accentColors[frontend.accent] || local.accentColors.orange;
+    root.style.setProperty('--accent', color);
+    $('#links').hidden = !frontend.showLinks || !$('#links').firstChild;
+    $('#chips').hidden = !frontend.showStatus;
+    renderBrowserTabs();
+  }
+  function renderHomePicks() {
+    var section = $('#homePicks');
+    var host = $('#homePickList');
+    if (!section || !host || !local) return;
+    var items = local.suggestions('', browserTabs).filter(function (x) {
+      return x.url !== current;
+    });
+    host.textContent = '';
+    if (!frontend.showRecommendations || !items.length) {
+      section.hidden = true;
+      return;
+    }
+    items.slice(0, 4).forEach(function (item) {
+      host.appendChild(
+        el(
+          'button',
+          {
+            class: 'pick',
+            title: item.url,
+            onclick: function () {
+              go(item.url);
+            },
+          },
+          [
+            el('span', { class: 'pick-kind', text: item.kind }),
+            el('b', { text: item.title || item.url }),
+            el('small', { text: item.url.replace(/^https?:\/\//, '') }),
+          ]
+        )
+      );
+    });
+    section.hidden = !host.firstChild;
+  }
+  var externalTimer = 0;
+  var externalAbort = null;
+  function closeSuggestions() {
+    $('#suggestions').hidden = true;
+    $('#addressSuggestions').hidden = true;
+    clearTimeout(externalTimer);
+    if (externalAbort) externalAbort.abort();
+    externalAbort = null;
+  }
+  function fillSuggestions(panel, query, external) {
+    panel.textContent = '';
+    var localItems = local ? local.suggestions(query, browserTabs) : [];
+    if (localItems.length) {
+      panel.appendChild(el('div', { class: 'suggest-heading', text: query ? 'From this browser' : 'Suggestions from this browser' }));
+      localItems.slice(0, 6).forEach(function (item) {
+        var u = item.url;
+        panel.appendChild(
+          el(
+            'button',
+            {
+              class: 'suggest-item',
+              role: 'option',
+              onclick: function () {
+                closeSuggestions();
+                go(u);
+              },
+            },
+            [
+              el('span', { class: 'suggest-title', text: item.title || u }),
+              el('small', { text: item.kind + ' · ' + u.replace(/^https?:\/\//, '') }),
+            ]
+          )
+        );
+      });
+    }
+    if (external && external.length) {
+      panel.appendChild(el('div', { class: 'suggest-heading', text: 'Web suggestions · DuckDuckGo' }));
+      external.slice(0, 5).forEach(function (item) {
+        panel.appendChild(
+          el(
+            'button',
+            {
+              class: 'suggest-item',
+              role: 'option',
+              onclick: function () {
+                closeSuggestions();
+                go(item);
+              },
+            },
+            [el('span', { class: 'suggest-title', text: item }), el('small', { text: 'Search through your selected search engine' })]
+          )
+        );
+      });
+    }
+    panel.hidden = panel.childNodes.length === 0;
+  }
+  function showSuggestions(query, where) {
+    if (!local) return;
+    var panel = where === 'address' ? $('#addressSuggestions') : $('#suggestions');
+    var other = where === 'address' ? $('#suggestions') : $('#addressSuggestions');
+    other.hidden = true;
+    var text = String(query || '').trim();
+    fillSuggestions(panel, text, []);
+    if (!frontend.externalSuggestions || text.length < 3) return;
+    clearTimeout(externalTimer);
+    if (externalAbort) externalAbort.abort();
+    externalTimer = setTimeout(function () {
+      try {
+        externalAbort = new AbortController();
+        var endpoint = P + 'https://duckduckgo.com/ac/?q=' + encodeURIComponent(text) + '&type=list';
+        fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', signal: externalAbort.signal })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            var input = where === 'address' ? addr : $('#q');
+            if (input.value.trim() !== text) return;
+            var terms = Array.isArray(data)
+              ? data
+                  .map(function (x) {
+                    return String(x.phrase || '');
+                  })
+                  .filter(Boolean)
+              : [];
+            fillSuggestions(panel, text, terms);
+          })
+          .catch(function () {});
+      } catch (e) {
+        /* suggestions are optional */
+      }
+    }, 450);
+  }
+  $('#q').addEventListener('focus', function () {
+    showSuggestions($('#q').value, 'home');
+  });
+  $('#q').addEventListener('input', function () {
+    showSuggestions($('#q').value, 'home');
+  });
+  addr.addEventListener('input', function () {
+    showSuggestions(addr.value, 'address');
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!$('#searchBox').contains(e.target) && !$('#nav').contains(e.target)) closeSuggestions();
+  });
+
   var busy = false;
   function refresh() {
     if (busy) return;
@@ -623,6 +1197,7 @@
         function (s) {
           // A reply that was already on its way when a setting changed would undo the change on screen.
           if (seen === writes && !pending) apply(s);
+          if (!$('#libraryPanel').hidden && libraryTab === 'inspect') refreshInspector();
         },
         function () {}
       )
@@ -1029,6 +1604,46 @@
         },
       }),
       o
+    );
+  }
+  function setFrontendPreference(key, value) {
+    if (!local) return;
+    var patch = {};
+    patch[key] = value;
+    frontend = local.savePreferences(patch);
+    applyFrontendPrefs();
+    renderHomePicks();
+    if (!$('#drawer').hidden) render(true);
+  }
+  function localSel(label, key, opts) {
+    return row(
+      label,
+      dropdown({
+        options: opts,
+        value: frontend[key],
+        key: 'local.' + key,
+        label: label,
+        onpick: function (value) {
+          setFrontendPreference(key, value);
+        },
+      })
+    );
+  }
+  function localToggle(label, key, hint) {
+    var on = !!frontend[key];
+    return row(
+      label,
+      el('button', {
+        class: 'sw' + (on ? ' on' : ''),
+        role: 'switch',
+        'aria-checked': String(on),
+        'aria-label': label,
+        'data-k': 'local.' + key,
+        onclick: function () {
+          setFrontendPreference(key, !on);
+        },
+      }),
+      { hint: hint }
     );
   }
   /** Choose any number from a long list (countries). */
@@ -1937,6 +2552,66 @@
           ),
           custom ? txt('Address, with %s for the words', 'ui.search', 'https://…?q=%s', { col: true }) : null,
           area('Quick links', 'ui.links', 4, 'Name https://address'),
+          h2('Appearance'),
+          localSel('Accent colour', 'accent', [
+            ['orange', 'Orange'],
+            ['blue', 'Blue'],
+            ['violet', 'Violet'],
+            ['teal', 'Teal'],
+            ['rose', 'Rose'],
+          ]),
+          localSel('Interface density', 'density', [
+            ['comfortable', 'Comfortable'],
+            ['compact', 'Compact'],
+            ['spacious', 'Spacious'],
+          ]),
+          localSel('Text size', 'textSize', [
+            ['small', 'Small'],
+            ['normal', 'Normal'],
+            ['large', 'Large'],
+          ]),
+          localSel('Tab strip position', 'tabPosition', [
+            ['top', 'Below the toolbar'],
+            ['bottom', 'Below the page'],
+          ]),
+          h2('Start page'),
+          localToggle('Show quick links', 'showLinks'),
+          localToggle('Show local recommendations', 'showRecommendations'),
+          localToggle('Show status chips', 'showStatus'),
+          localToggle(
+            'DuckDuckGo web suggestions',
+            'externalSuggestions',
+            'Off by default. When on, typed searches go through your current proxy exit.'
+          ),
+          h2('Your pages'),
+          el('div', { class: 'btns' }, [
+            btn('Bookmark page', toggleCurrentBookmark),
+            btn('Open library', function () {
+              openLibrary('bookmarks');
+            }),
+            btn('Inspect page', function () {
+              openLibrary('inspect');
+            }),
+            btn('Reset frontend settings', function () {
+              frontend = local.savePreferences({
+                accent: 'orange',
+                density: 'comfortable',
+                textSize: 'normal',
+                tabPosition: 'top',
+                showLinks: true,
+                showRecommendations: true,
+                showStatus: true,
+                externalSuggestions: false,
+              });
+              applyFrontendPrefs();
+              renderHomePicks();
+            }),
+          ]),
+          h2('Keyboard shortcuts'),
+          el('div', {
+            class: 'hint',
+            text: 'Ctrl+T new tab · Ctrl+W close tab · Ctrl+L address · Ctrl+Shift+I inspect · Ctrl+D bookmark · Alt+←/→ back or forward.',
+          }),
           h2('Stealth'),
           sel('Tab disguise', 'ui.cloak', [
             ['none', 'None'],
@@ -2001,6 +2676,559 @@
       },
     ],
   };
+
+  function updateBookmarkButton() {
+    var button = $('#bookmark');
+    if (!button || !local) return;
+    var yes =
+      !!current &&
+      local.get().bookmarks.some(function (x) {
+        return x.url === local.cleanUrl(current);
+      });
+    button.classList.toggle('saved', yes);
+    button.setAttribute('aria-pressed', String(yes));
+    button.title = yes ? 'Remove bookmark' : 'Bookmark this page';
+    button.setAttribute('aria-label', button.title);
+  }
+  function toggleCurrentBookmark() {
+    if (!current || !local) {
+      toast('Open a page to bookmark it');
+      return;
+    }
+    var result = local.toggleBookmark(current, pageTitle || current);
+    updateBookmarkButton();
+    renderHomePicks();
+    if (!$('#libraryPanel').hidden && libraryTab === 'bookmarks') renderLibrary();
+    toast(result.added ? 'Bookmark added' : 'Bookmark removed');
+  }
+  var LIBRARY_TABS = { bookmarks: 'Bookmarks', saved: 'Saved', history: 'History', inspect: 'Inspect' };
+  function openLibrary(which) {
+    if (which && LIBRARY_TABS[which]) libraryTab = which;
+    $('#drawer').hidden = true;
+    $('#libraryPanel').hidden = false;
+    renderLibrary();
+    if (libraryTab === 'inspect') refreshInspector();
+  }
+  function renderLibrary() {
+    var tabs = $('#libraryTabs');
+    tabs.textContent = '';
+    Object.keys(LIBRARY_TABS).forEach(function (key) {
+      tabs.appendChild(
+        el('button', {
+          role: 'tab',
+          class: libraryTab === key ? 'on' : '',
+          'aria-selected': String(libraryTab === key),
+          text: LIBRARY_TABS[key],
+          onclick: function () {
+            libraryTab = key;
+            librarySearch = '';
+            inspectorView = 'requests';
+            renderLibrary();
+            if (key === 'inspect') refreshInspector();
+          },
+        })
+      );
+    });
+    var content = $('#libraryContent');
+    content.textContent = '';
+    if (libraryTab === 'bookmarks') renderBookmarks(content);
+    else if (libraryTab === 'saved') renderSaved(content);
+    else if (libraryTab === 'history') renderHistory(content);
+    else renderInspector(content);
+  }
+  function libraryToolbar(currentButton) {
+    var buttons = [];
+    if (current) {
+      buttons.push(el('button', { class: 'btn pri', text: 'Bookmark page', onclick: toggleCurrentBookmark }));
+      buttons.push(
+        el('button', {
+          class: 'btn',
+          text: 'Save for later',
+          onclick: function () {
+            var item = local.saveForLater(current, pageTitle || current);
+            if (!item) return toast('This address cannot be saved');
+            renderHomePicks();
+            renderLibrary();
+            toast('Saved for later');
+          },
+        })
+      );
+    }
+    if (currentButton) buttons.push(currentButton);
+    return el('div', { class: 'library-actions' }, buttons);
+  }
+  function downloadLocal(name, text, type) {
+    try {
+      var url = URL.createObjectURL(new Blob([text], { type: type }));
+      var a = el('a', { href: url, download: name });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1000);
+    } catch (e) {
+      toast('Download is unavailable in this browser');
+    }
+  }
+  function importBookmarkFile(file) {
+    if (!file || !local) return;
+    file
+      .text()
+      .then(function (text) {
+        var incoming;
+        try {
+          incoming = JSON.parse(text);
+          if (Array.isArray(incoming)) incoming = { bookmarks: incoming };
+        } catch (e) {
+          var parsed = new DOMParser().parseFromString(text, 'text/html');
+          var bookmarks = [].map.call(parsed.querySelectorAll('a[href]'), function (a) {
+            return { url: a.href, title: a.textContent.trim() || a.href, folder: 'Imported' };
+          });
+          incoming = { folders: ['Imported'], bookmarks: bookmarks };
+        }
+        var count = local.importBookmarks(incoming);
+        librarySearch = '';
+        libraryFolder = 'All';
+        renderLibrary();
+        renderHomePicks();
+        toast(count + ' bookmark' + (count === 1 ? '' : 's') + ' imported');
+      })
+      .catch(function () {
+        toast('Could not read that bookmarks file');
+      });
+  }
+  function librarySearchInput(label) {
+    var input = el('input', {
+      class: 'library-search',
+      type: 'search',
+      placeholder: 'Search ' + label.toLowerCase(),
+      'aria-label': 'Search ' + label.toLowerCase(),
+      value: librarySearch,
+      oninput: function (e) {
+        librarySearch = e.target.value;
+        fillLibraryItems();
+      },
+    });
+    return input;
+  }
+  function renderBookmarks(content) {
+    var data = local.get();
+    var importInput = el('input', {
+      type: 'file',
+      accept: '.json,.html,.htm,application/json,text/html',
+      class: 'visually-hidden',
+      'aria-label': 'Import bookmarks',
+      onchange: function (e) {
+        importBookmarkFile(e.target.files && e.target.files[0]);
+      },
+    });
+    var toolbar = libraryToolbar(
+      el('div', { class: 'btns' }, [
+        el('button', {
+          class: 'btn',
+          text: 'Export JSON',
+          onclick: function () {
+            downloadLocal('waddle-bookmarks.json', JSON.stringify(local.exportBookmarks(), null, 2), 'application/json');
+          },
+        }),
+        el('button', {
+          class: 'btn',
+          text: 'Import',
+          onclick: function () {
+            importInput.click();
+          },
+        }),
+      ])
+    );
+    content.appendChild(toolbar);
+    content.appendChild(importInput);
+    content.appendChild(
+      el('div', {
+        class: 'hint',
+        text: 'Bookmarks are kept only in this browser. Import accepts Waddle JSON or a browser bookmarks HTML file.',
+      })
+    );
+    var folderRow = el('div', { class: 'folder-tools' });
+    folderRow.appendChild(
+      el('input', { id: 'newFolder', type: 'text', maxlength: 48, placeholder: 'New folder', 'aria-label': 'New folder' })
+    );
+    folderRow.appendChild(
+      el('button', {
+        class: 'btn',
+        text: 'Add folder',
+        onclick: function () {
+          var input = $('#newFolder');
+          if (!local.addFolder(input.value)) return toast('Enter a new folder name');
+          libraryFolder = input.value.trim();
+          renderLibrary();
+        },
+      })
+    );
+    content.appendChild(folderRow);
+    var filter = el('div', { class: 'library-filters' }, [librarySearchInput('Bookmarks')]);
+    var folder = el(
+      'select',
+      {
+        class: 'library-select',
+        'aria-label': 'Filter bookmarks by folder',
+        onchange: function (e) {
+          libraryFolder = e.target.value;
+          fillLibraryItems();
+        },
+      },
+      [el('option', { value: 'All', text: 'All folders' })]
+    );
+    data.folders.forEach(function (name) {
+      folder.appendChild(el('option', { value: name, text: name }));
+    });
+    folder.value = data.folders.indexOf(libraryFolder) >= 0 ? libraryFolder : 'All';
+    filter.appendChild(folder);
+    content.appendChild(filter);
+    content.appendChild(el('div', { id: 'libraryItems', class: 'library-items' }));
+    fillLibraryItems();
+  }
+  function libraryCard(item, type) {
+    var card = el('div', { class: 'library-entry' });
+    card.appendChild(
+      el('div', { class: 'library-entry-main' }, [
+        el('strong', { text: item.title || item.url }),
+        el('small', { class: 'mono', text: item.url }),
+        type === 'history' ? el('small', { class: 'dim', text: ago(item.at) }) : null,
+      ])
+    );
+    var actions = el('div', { class: 'library-entry-actions' });
+    actions.appendChild(
+      el('button', {
+        class: 'btn',
+        text: 'Open',
+        onclick: function () {
+          $('#libraryPanel').hidden = true;
+          go(item.url);
+        },
+      })
+    );
+    if (type === 'bookmark') {
+      var data = local.get();
+      var move = el(
+        'select',
+        {
+          class: 'library-select folder-select',
+          'aria-label': 'Move to folder',
+          onchange: function (e) {
+            local.moveBookmark(item.id, e.target.value);
+            fillLibraryItems();
+          },
+        },
+        data.folders.map(function (name) {
+          return el('option', { value: name, text: name });
+        })
+      );
+      move.value = item.folder || 'Unsorted';
+      actions.appendChild(move);
+    }
+    if (type !== 'recommendation')
+      actions.appendChild(
+        el('button', {
+          class: 'x',
+          title: 'Remove',
+          'aria-label': 'Remove ' + item.title,
+          text: '×',
+          onclick: function () {
+            local.remove(type === 'bookmark' ? 'bookmarks' : type === 'saved' ? 'saved' : 'history', item.id);
+            renderLibrary();
+            renderHomePicks();
+            updateBookmarkButton();
+          },
+        })
+      );
+    card.appendChild(actions);
+    return card;
+  }
+  function fillLibraryItems() {
+    var host = $('#libraryItems');
+    if (!host || !local) return;
+    host.textContent = '';
+    var data = local.get();
+    var q = String(librarySearch || '')
+      .trim()
+      .toLowerCase();
+    var items = libraryTab === 'bookmarks' ? data.bookmarks : libraryTab === 'saved' ? data.saved : data.history;
+    items = items.filter(function (x) {
+      return (
+        (!q || (x.title + ' ' + x.url + ' ' + (x.folder || '')).toLowerCase().indexOf(q) >= 0) &&
+        (libraryTab !== 'bookmarks' || libraryFolder === 'All' || x.folder === libraryFolder)
+      );
+    });
+    if (!items.length) {
+      host.appendChild(
+        el('div', {
+          class: 'empty-note',
+          text: librarySearch
+            ? 'No matches.'
+            : libraryTab === 'bookmarks'
+              ? 'No bookmarks yet. Open a page and click the star.'
+              : libraryTab === 'saved'
+                ? 'Nothing saved for later yet.'
+                : 'Visited pages will appear here.',
+        })
+      );
+      return;
+    }
+    if (libraryTab === 'bookmarks' && libraryFolder === 'All') {
+      data.folders.forEach(function (folder) {
+        var group = items.filter(function (x) {
+          return (x.folder || 'Unsorted') === folder;
+        });
+        if (!group.length) return;
+        host.appendChild(el('h3', { class: 'library-folder-title', text: folder }));
+        group.forEach(function (item) {
+          host.appendChild(libraryCard(item, 'bookmark'));
+        });
+      });
+    } else
+      items.forEach(function (item) {
+        host.appendChild(libraryCard(item, libraryTab === 'bookmarks' ? 'bookmark' : libraryTab));
+      });
+  }
+  function renderSaved(content) {
+    content.appendChild(libraryToolbar());
+    content.appendChild(
+      el('div', { class: 'hint', text: 'Read-later addresses are saved in this browser; pages are not downloaded for offline reading.' })
+    );
+    content.appendChild(librarySearchInput('Saved pages'));
+    content.appendChild(el('div', { id: 'libraryItems', class: 'library-items' }));
+    fillLibraryItems();
+  }
+  function renderHistory(content) {
+    content.appendChild(
+      el('div', { class: 'library-actions' }, [
+        el('button', {
+          class: 'btn',
+          text: 'Clear history',
+          onclick: function () {
+            local.clearHistory();
+            librarySearch = '';
+            renderLibrary();
+            renderHomePicks();
+            toast('History cleared');
+          },
+        }),
+      ])
+    );
+    content.appendChild(el('div', { class: 'hint', text: 'Searches and visits stay in this browser. New identity clears this history.' }));
+    content.appendChild(librarySearchInput('History'));
+    content.appendChild(el('div', { id: 'libraryItems', class: 'library-items' }));
+    fillLibraryItems();
+  }
+  function humanBytes(value) {
+    var n = Number(value || 0);
+    if (!n) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function inspectorEntry(request) {
+    var route = (request.route || [])
+      .map(function (h) {
+        return (h.cc || h.proto) + ' · ' + h.addr;
+      })
+      .join(' › ');
+    var stateText = request.blocked ? request.blocked : request.status == null ? '—' : String(request.status);
+    if (request.waddleStatus != null && request.waddleStatus !== request.status) stateText += ' → ' + request.waddleStatus + ' in Waddle';
+    return el(
+      'button',
+      {
+        class: 'inspect-request' + (request.id === inspectRequestId ? ' selected' : ''),
+        onclick: function () {
+          inspectRequestId = request.id;
+          renderInspectorPanel();
+        },
+      },
+      [
+        el('span', { class: 'inspect-status' + (request.blocked ? ' bad' : request.status >= 400 ? ' warn' : ''), text: stateText }),
+        el('span', { class: 'inspect-address' }, [
+          el('b', { text: request.method + ' · ' + request.type }),
+          el('small', { text: request.url }),
+        ]),
+        el('span', { class: 'inspect-meta', text: humanBytes(request.bytes) + ' · ' + (request.ms || 0) + ' ms' }),
+        el('small', { class: 'inspect-route', text: route || request.error || 'No proxy route' }),
+      ]
+    );
+  }
+  function inspectorDetails(request) {
+    if (!request) return el('div', { class: 'empty-note', text: 'Open a page to inspect its requests.' });
+    var details = el('div', { class: 'inspect-details' });
+    [
+      ['Address', request.url],
+      ['Method', request.method],
+      ['Type', request.type],
+      ['Site status', request.status == null ? 'Not reached' : String(request.status)],
+      ['Waddle status', request.waddleStatus == null ? '—' : String(request.waddleStatus)],
+      ['Transferred', humanBytes(request.bytes)],
+      ['Shown to browser', humanBytes(request.servedBytes)],
+      ['Time', (request.ms || 0) + ' ms'],
+      [
+        'Route',
+        (request.route || [])
+          .map(function (h) {
+            return (h.cc || h.proto) + ' · ' + h.addr;
+          })
+          .join(' › ') || 'No proxy route',
+      ],
+      ['Result', request.blocked || request.error || 'OK'],
+    ].forEach(function (pair) {
+      details.appendChild(el('div', { class: 'inspect-detail' }, [el('span', { text: pair[0] }), el('b', { text: pair[1] || '—' })]));
+    });
+    return details;
+  }
+  function inspectorHeaders(request) {
+    if (!request || !request.headers || !Object.keys(request.headers).length)
+      return el('div', { class: 'empty-note', text: 'No response headers were captured for this request.' });
+    var list = el('div', { class: 'inspect-headers' });
+    Object.keys(request.headers).forEach(function (name) {
+      list.appendChild(el('div', { class: 'inspect-header' }, [el('code', { text: name }), el('span', { text: request.headers[name] })]));
+    });
+    return list;
+  }
+  function renderInspector(content) {
+    var tabs = el('div', { class: 'inspect-tabs', role: 'tablist' });
+    [
+      ['requests', 'Requests'],
+      ['headers', 'Headers'],
+      ['cookies', 'Cookies'],
+      ['source', 'Source'],
+    ].forEach(function (pair) {
+      tabs.appendChild(
+        el('button', {
+          role: 'tab',
+          class: inspectorView === pair[0] ? 'on' : '',
+          'aria-selected': String(inspectorView === pair[0]),
+          text: pair[1],
+          onclick: function () {
+            inspectorView = pair[0];
+            renderInspectorPanel();
+          },
+        })
+      );
+    });
+    content.appendChild(
+      el('div', { class: 'library-actions' }, [
+        el('span', { class: 'hint', text: current ? current : 'No page is open' }),
+        el('button', { class: 'btn', text: 'Refresh', onclick: refreshInspector }),
+      ])
+    );
+    content.appendChild(tabs);
+    content.appendChild(
+      el('div', {
+        class: 'inspect-warning',
+        text: 'Recent request details stay in this Waddle session. Cookie values for HttpOnly cookies are hidden.',
+      })
+    );
+    content.appendChild(el('div', { id: 'inspectorBody', class: 'inspector-body' }));
+    renderInspectorPanel();
+  }
+  function renderInspectorPanel() {
+    var host = $('#inspectorBody');
+    if (!host) return;
+    var views = ['requests', 'headers', 'cookies', 'source'];
+    [].forEach.call(document.querySelectorAll('#libraryContent .inspect-tabs button'), function (button, index) {
+      var selectedView = views[index] === inspectorView;
+      button.classList.toggle('on', selectedView);
+      button.setAttribute('aria-selected', String(selectedView));
+    });
+    host.textContent = '';
+    var requests = inspectData.requests || [];
+    var selected =
+      requests.filter(function (x) {
+        return x.id === inspectRequestId;
+      })[0] ||
+      requests[0] ||
+      null;
+    if (selected && !inspectRequestId) inspectRequestId = selected.id;
+    if (inspectorView === 'requests') {
+      if (!requests.length)
+        host.appendChild(
+          el('div', {
+            class: 'empty-note',
+            text: current ? 'No requests recorded yet. Refresh after the page loads.' : 'Open a page to inspect requests.',
+          })
+        );
+      else {
+        var list = el('div', { class: 'inspect-list' });
+        requests.forEach(function (x) {
+          list.appendChild(inspectorEntry(x));
+        });
+        host.appendChild(list);
+        host.appendChild(inspectorDetails(selected));
+      }
+    } else if (inspectorView === 'headers') {
+      host.appendChild(inspectorHeaders(selected));
+      if (selected) host.appendChild(inspectorDetails(selected));
+    } else if (inspectorView === 'cookies') {
+      var cookies = inspectData.cookies || [];
+      if (!cookies.length) host.appendChild(el('div', { class: 'empty-note', text: 'No cookies match this page.' }));
+      cookies.forEach(function (c) {
+        host.appendChild(
+          el('div', { class: 'inspect-cookie' }, [
+            el('b', { text: c.name }),
+            el('code', { text: c.httpOnly ? 'value hidden · HttpOnly' : c.value || '(empty value)' }),
+            el('small', { text: c.domain + c.path + (c.secure ? ' · Secure' : '') + (c.httpOnly ? ' · HttpOnly' : '') }),
+          ])
+        );
+      });
+    } else {
+      var source = '';
+      try {
+        source = frame.contentDocument.documentElement.outerHTML;
+        source = source.replace(/<script[^>]*src="\/-\/client\.js[^>]*><\/script>/gi, '<!-- Waddle bootstrap omitted -->');
+        if (!/Waddle bootstrap omitted/.test(source)) source = '<!-- Waddle bootstrap omitted from the live document -->\n' + source;
+      } catch (e) {
+        source = 'The page source is not available until a page has loaded in this tab.';
+      }
+      host.appendChild(
+        el('div', { class: 'library-actions' }, [
+          el('button', {
+            class: 'btn',
+            text: 'Copy source',
+            onclick: function () {
+              if (navigator.clipboard && navigator.clipboard.writeText)
+                navigator.clipboard.writeText(source).then(
+                  function () {
+                    toast('Source copied');
+                  },
+                  function () {
+                    toast('Could not copy source');
+                  }
+                );
+              else toast('Clipboard is unavailable');
+            },
+          }),
+        ])
+      );
+      host.appendChild(el('pre', { class: 'source-view', text: source || 'No source is available.' }));
+    }
+  }
+  function refreshInspector() {
+    if ($('#libraryPanel').hidden || libraryTab !== 'inspect') return;
+    var url = current ? '?url=' + encodeURIComponent(current) : '';
+    api('inspect' + url)
+      .then(function (data) {
+        inspectData = data || { requests: [], cookies: [] };
+        if (
+          !inspectRequestId ||
+          !(inspectData.requests || []).some(function (x) {
+            return x.id === inspectRequestId;
+          })
+        )
+          inspectRequestId = '';
+        if (!$('#libraryPanel').hidden && libraryTab === 'inspect') {
+          if ($('#inspectorBody')) renderInspectorPanel();
+          else renderLibrary();
+        }
+      })
+      .catch(function () {});
+  }
 
   function render(force) {
     if (!state) return;
@@ -2080,7 +3308,9 @@
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     if (openDD) openDD.close();
-    else $('#drawer').hidden = true;
+    else if (!$('#libraryPanel').hidden) $('#libraryPanel').hidden = true;
+    else if (!$('#drawer').hidden) $('#drawer').hidden = true;
+    closeSuggestions();
   });
   // Enter in a one-line "add" field presses the button next to it.
   $('#panel').addEventListener('keydown', function (e) {
@@ -2143,9 +3373,17 @@
       return raw;
     }
   }
+  renderBrowserTabs();
+  applyFrontendPrefs();
+  updateBookmarkButton();
+  renderHomePicks();
   Promise.all([api('state').then(apply, function () {}), ready()]).then(function () {
-    var h = fromHash();
-    if (h) go(h);
+    var h = fromHash() || (activeBrowserTab() && activeBrowserTab().url) || '';
+    if (h) go(h, { mode: 'replace' });
+    else show('');
+    renderBrowserTabs();
+    updateBookmarkButton();
+    renderHomePicks();
   });
   window.addEventListener('hashchange', function () {
     var h = fromHash();

@@ -26,6 +26,7 @@ const TYPES = {
 };
 const STATIC = {
   'app.js': 1,
+  'local.js': 1,
   'app.css': 1,
   'client.js': 1,
   'sw.js': 1,
@@ -193,7 +194,8 @@ function createApp() {
       return res.end();
     }
     let body = a.body;
-    if (name === 'index.html') body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('app.js').tag + asset('app.css').tag));
+    if (name === 'index.html')
+      body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('app.js').tag + asset('app.css').tag + asset('local.js').tag));
     res.setHeader('Content-Length', body.length);
     res.end(req.method === 'HEAD' ? undefined : body);
   }
@@ -228,6 +230,28 @@ function createApp() {
     if (req.headers['x-waddle'] !== '1') return json(res, 403, { error: 'forbidden' });
     const sess = session(req, res, proxy.isSecure(req));
     if (req.method === 'GET' && name === 'state') return json(res, 200, state(sess, req));
+    if (req.method === 'GET' && name === 'inspect') {
+      let target = null;
+      try {
+        const q = new URL(req.url, 'http://waddle.local').searchParams.get('url') || '';
+        const u = new URL(q);
+        if (u.protocol === 'http:' || u.protocol === 'https:') target = u;
+      } catch {
+        /* no selected page */
+      }
+      const cookies = target
+        ? sess.jar.match(target, false).map((c) => ({
+            name: c.name,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            expires: c.expires || 0,
+            value: c.httpOnly ? '' : c.value,
+          }))
+        : [];
+      return json(res, 200, { requests: (sess.inspect || []).slice(0, 150), cookies });
+    }
     if (req.method !== 'POST') return json(res, 405, { error: 'method' });
     if (!/^application\/json/i.test(req.headers['content-type'] || '')) return json(res, 415, { error: 'json only' });
     let body;

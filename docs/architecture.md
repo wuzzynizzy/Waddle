@@ -35,7 +35,8 @@ no way to fetch a site without one.
 | `lib/geo.js`       | Countries: languages, time zones and a position for each                        |
 | `lib/trackers.js`  | The list of tracking and advertising hosts                                      |
 | `lib/pages.js`     | Waddle's own pages: errors, and "What sites see"                                |
-| `public/app.js`    | The interface (address bar and settings drawer)                                 |
+| `public/app.js`    | Browser shell: tabs, address bar, library, inspector and settings                |
+| `public/local.js`  | Browser-local bookmarks, saved addresses, history and frontend preferences     |
 | `public/client.js` | Script placed first in every proxied page and worker                            |
 | `public/sw.js`     | Service worker: catches stray requests, hides a host's error pages              |
 
@@ -48,6 +49,26 @@ no way to fetch a site without one.
 | `/~/f/<URL>`        | A document that a page embeds in a frame.                         |
 | `/-/…`              | Waddle's own files and API (see [api.md](api.md)).                |
 | `/<host>/<path>`    | Shortcut: `/example.com/news` opens that site in the interface.   |
+
+## Browser shell state and inspection
+
+Each Waddle tab keeps its address and navigation history separately in browser `localStorage` and
+restores them when the shell reloads. The library and frontend preferences are also browser-local:
+bookmarks and folders, searchable history, saved read-later addresses, appearance and start-page
+options. Saved items are URLs and titles, not downloaded page copies. Local suggestions match this
+library and open tabs; optional DuckDuckGo autocomplete is off by default and sends typed queries
+through the current proxy exit when enabled.
+
+The Inspector combines two sources. `lib/proxy.js` records a capped, newest-first log of recent
+requests in each in-memory visitor session, including route, status, transfer counts, duration,
+blocked/error reason and an allow-list of upstream response headers. `/-/api/inspect` returns that
+log and cookie details for the selected URL; `Set-Cookie` values and HttpOnly cookie values are
+redacted. The source view reads the current frame's live DOM in the browser, after the private Waddle
+bootstrap has removed itself. Inspector records disappear on New identity, session expiry or server
+restart. Details and field names are in [api.md](api.md#inspector).
+
+All proxied pages and the shell still share one browser origin, so browser-local library data is not
+a security boundary against a malicious page. See [security.md](security.md#one-origin-for-everything).
 
 ## Nothing leaves without a proxy
 

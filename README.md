@@ -89,20 +89,50 @@ page gets none, and its own separate storage. Requests to 171 known tracking and
 are refused before they leave. Plain `http://` addresses are upgraded to HTTPS. WebRTC is blocked.
 **New identity** drops cookies, exits and the fingerprint in one go.
 
+**Tabs and a local library.** Open up to 16 Waddle tabs, each with its own address and back/forward
+history; links opened in a new window become Waddle tabs. Bookmark pages, sort bookmarks into
+folders, and import browser-bookmark HTML or Waddle JSON. **Saved** keeps read-later addresses, not
+offline copies. **History** is searchable. These records stay in this browser, not on Waddle's
+server. New identity clears history and open tabs but keeps bookmarks and saved addresses.
+
+**A start page that remembers.** Recommendations and address-bar matches come from this browser's
+bookmarks, saved pages, history and open tabs. Nothing is sent to a search service for suggestions
+by default. If enabled in Settings → General, DuckDuckGo suggestions are requested through the
+current proxy exit.
+
+**Inspect.** See recent requests with their site status, response size, duration, route and blocked
+state, plus selected response headers, cookies for the current address and the page's rewritten
+source. HttpOnly cookie values and `Set-Cookie` response values are hidden. The inspector's request
+log is kept in memory for this Waddle session and is cleared by New identity.
+
+**Frontend settings.** Choose an accent colour, interface density and text size; move the tab strip;
+and show or hide start-page links, recommendations and status chips. These preferences are saved
+only in this browser and do not change Waddle's server configuration. Keyboard shortcuts and the
+panic key are listed in Settings → General.
+
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
 what to do. If the server itself cannot be reached, the tab shows a "Reconnecting" screen that
 comes back by itself, never an unstyled error page from the host in front of it.
 
 ## The interface
 
-The start page is a single box. The chips underneath show the state of the pool, the route, DNS and
-identity, and open the matching settings.
+The start page centers one search/address box. Local recommendations and quick links sit beneath it;
+status chips show the pool, route, DNS and identity, and open the matching settings.
 
 ![Start page](docs/img/landing.png)
 
 While browsing, the bar shows the real address, the country of the exit and how long the page took.
-The arrows button asks for a new exit, the star for a new identity, and the sliders button opens the
-settings.
+The arrows button asks for a new exit; the bookmark icon saves the current page; the book opens
+Bookmarks, Saved, History and Inspect; the identity star starts a new identity; and the sliders open
+settings. The tab strip keeps each open page and its back/forward history separate.
+
+![Bookmarks, folders and the local library](docs/img/library.png)
+
+![Recent requests in Inspect](docs/img/inspect.png)
+
+![Local address suggestions and recommendations](docs/img/recommendations.png)
+
+![Browser-local appearance settings](docs/img/frontend-settings.png)
 
 <img src="docs/img/route.png" width="270" alt="Route settings"> <img src="docs/img/proxies.png" width="270" alt="Proxies"> <img src="docs/img/dns.png" width="270" alt="DNS settings">
 
@@ -145,8 +175,8 @@ identity. A service worker catches whatever is left. More in
 ## Tests
 
 ```sh
-npm test              # 182 tests, about 30 seconds, no network needed
-npm run test:browser  # 103 checks in a real Chrome (see docs/testing.md)
+npm test              # 183 tests, about 30 seconds, no network needed
+npm run test:browser  # 132 checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
@@ -167,8 +197,10 @@ correctness. Details and measured figures are in [docs/testing.md](docs/testing.
 - **Pages see Waddle's address.** Scripts that read `location` get Waddle's address, not the site's,
   which confuses some single-page apps.
 - **All sites share one origin.** Every proxied site runs under Waddle's own address, so the browser
-  does not separate them from each other or from Waddle's settings. Do not sign in to accounts that
-  matter. See [docs/security.md](docs/security.md).
+  does not separate them from each other or from Waddle's settings and browser-local library. A
+  malicious page may reach data or controls that a normal website could not. Do not open untrusted
+  sites in the same session as accounts or information that matter. See
+  [docs/security.md](docs/security.md).
 - **Waddle's own downloads start out direct.** The proxy lists come from GitHub and similar hosts,
   and until three proxies are live they are fetched straight from the machine Waddle runs on. So are
   the lookups for those hosts. No site you visit is ever reached that way. With a chain, the entry
