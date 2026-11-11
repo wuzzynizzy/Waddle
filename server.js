@@ -7,11 +7,12 @@ const path = require('path');
 const crypto = require('crypto');
 const net = require('./lib/net');
 const { Config, options, parseSource } = require('./lib/config');
-const { Pool, sourceId } = require('./lib/pool');
+const { Pool, sourceId, getBuffer } = require('./lib/pool');
 const { Resolver } = require('./lib/dns');
-const { createProxy } = require('./lib/proxy');
-const { session, siteOf } = require('./lib/cookies');
+const { createProxy, settle } = require('./lib/proxy');
+const { session, siteOf, renew } = require('./lib/cookies');
 const { PREFIX } = require('./lib/rewrite');
+const trackers = require('./lib/trackers');
 
 const PUBLIC = path.join(__dirname, 'public');
 const TYPES = {
@@ -21,8 +22,17 @@ const TYPES = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json',
+  '.woff2': 'font/woff2',
 };
-const STATIC = { 'app.js': 1, 'app.css': 1, 'client.js': 1, 'sw.js': 1, 'icon.svg': 1 };
+const STATIC = {
+  'app.js': 1,
+  'app.css': 1,
+  'client.js': 1,
+  'sw.js': 1,
+  'icon.svg': 1,
+  'fonts/geist.woff2': 1,
+  'fonts/geist-mono.woff2': 1,
+};
 
 function readJson(req, max = 1 << 20) {
   return new Promise((resolve, reject) => {
@@ -121,9 +131,15 @@ function resolveInput(text, search) {
 
 function createApp() {
   const config = new Config();
-  const resolver = new Resolver(config);
-  net.setResolver(resolver);
   const pool = new Pool(config);
+  // The resolver's own errands: its list comes through the pool when there are proxies to spare, and
+  // the resolvers on that list are only ever tried through a proxy.
+  const resolver = new Resolver(config, {
+    fetch: (url, headers) => getBuffer(url, headers, pool.housekeeping()),
+    route: () => pool.lend() || pool.route('~dns', null, { hops: 1 }),
+  });
+  net.setResolver(resolver);
+  let chores = null;
   const password = process.env.WADDLE_PASSWORD || '';
   const ownAuth = password ? 'Basic ' + Buffer.from((process.env.WADDLE_USER || 'waddle') + ':' + password).toString('base64') : '';
   const dev = process.env.WADDLE_DEV === '1';
@@ -153,9 +169,9 @@ function createApp() {
   const proxy = createProxy({
     config,
     pool,
-    get clientVersion() {
-      return asset('client.js').tag;
-    },
+    resolver,
+    clientVersion: () => asset('client.js').tag,
+    clientSource: () => asset('client.js').body.toString('utf8'),
   });
 
   function sendAsset(req, res, name, extra) {
@@ -186,6 +202,7 @@ function createApp() {
     const body = Buffer.from(JSON.stringify(data));
     res.writeHead(status, {
       'Content-Type': 'application/json',
+      'X-Waddle': '1',
       'Content-Length': body.length,
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
@@ -193,12 +210,16 @@ function createApp() {
     res.end(body);
   };
 
-  const state = (sess) => ({
+  const state = (sess, req) => ({
     config: config.value,
     options,
-    pool: pool.summary(),
+    pool: Object.assign(pool.summary(), { last: sess ? sess.last : null }),
     dns: resolver.summary(),
     cookies: sess ? sess.jar.size : 0,
+    blocked: sess ? sess.blocked : 0,
+    trackers: trackers.size,
+    identity: sess ? proxy.spoofFor(sess, req).info : null,
+    plain: sess ? [...sess.plain] : [],
     uptime: Math.round((Date.now() - started) / 1000),
   });
 
@@ -206,7 +227,7 @@ function createApp() {
     // A custom header forces a CORS preflight, so no other website can drive this API.
     if (req.headers['x-waddle'] !== '1') return json(res, 403, { error: 'forbidden' });
     const sess = session(req, res, proxy.isSecure(req));
-    if (req.method === 'GET' && name === 'state') return json(res, 200, state(sess));
+    if (req.method === 'GET' && name === 'state') return json(res, 200, state(sess, req));
     if (req.method !== 'POST') return json(res, 405, { error: 'method' });
     if (!/^application\/json/i.test(req.headers['content-type'] || '')) return json(res, 415, { error: 'json only' });
     let body;
@@ -224,20 +245,20 @@ function createApp() {
     if (name === 'config') {
       if (body.reset === true) config.reset();
       else config.patch(body);
-      return json(res, 200, state(sess));
+      return json(res, 200, state(sess, req));
     }
     if (name === 'pool') {
       const out = {};
       switch (body.action) {
         case 'harvest':
-          pool.harvest().catch(() => {});
+          pool.harvest(true).catch(() => {}); // asked for by hand: also retry the sources that are resting
           break;
         case 'rotate':
           pool.rotate(body.site ? siteOf(String(body.site)) : undefined);
           break;
         case 'clear':
           pool.clear();
-          pool.harvest().catch(() => {});
+          pool.harvest(true).catch(() => {});
           break;
         case 'add':
           out.added = pool.addManual(
@@ -281,12 +302,16 @@ function createApp() {
         default:
           return json(res, 400, { error: 'unknown action' });
       }
-      return json(res, 200, Object.assign(out, state(sess)));
+      return json(res, 200, Object.assign(out, state(sess, req)));
     }
     if (name === 'dns') {
       if (body.action === 'flush') {
         resolver.flush();
-        return json(res, 200, state(sess));
+        return json(res, 200, state(sess, req));
+      }
+      if (body.action === 'refresh') {
+        resolver.refresh(true).catch(() => {});
+        return json(res, 200, state(sess, req));
       }
       if (body.action === 'test') {
         const host = String(body.host || 'example.com')
@@ -295,24 +320,49 @@ function createApp() {
           .replace(/^https?:\/\//, '')
           .replace(/[/:].*$/, '');
         if (!/^[a-z0-9.-]{1,253}$/.test(host)) return json(res, 400, { error: 'bad host' });
-        return json(res, 200, Object.assign({ host, results: await resolver.test(host) }, state(sess)));
+        // The question travels the way a visit to that site would: through its exit, never directly.
+        const via = pool.route(siteOf(host), null, {});
+        return json(res, 200, Object.assign({ host, results: await resolver.test(host, via), via: pool.describe(via) }, state(sess, req)));
       }
       return json(res, 400, { error: 'unknown action' });
     }
     if (name === 'cookies') {
       sess.jar.clear();
-      return json(res, 200, state(sess));
+      return json(res, 200, state(sess, req));
+    }
+    if (name === 'identity') {
+      // New identity: cookies, fingerprint, exits and chains, remembered choices, cached lookups. All of it starts over.
+      renew(sess);
+      pool.forget();
+      resolver.flush();
+      return json(res, 200, state(sess, req));
+    }
+    if (name === 'plain') {
+      // "Continue without HTTPS" for one host, for this session only.
+      const host = String(body.host || '')
+        .trim()
+        .toLowerCase();
+      if (!/^[a-z0-9.-]{1,253}$/.test(host)) return json(res, 400, { error: 'bad host' });
+      if (body.on === false) sess.plain.delete(host);
+      else {
+        sess.plain.add(host);
+        if (sess.plain.size > 200) sess.plain.delete(sess.plain.values().next().value);
+      }
+      return json(res, 200, state(sess, req));
     }
     return json(res, 404, { error: 'not found' });
   }
 
   const refuse = (res) => {
-    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Waddle': '1' });
     res.end('Cross-site requests are not served.');
   };
 
   async function route(req, res) {
     const url = req.url;
+    // Every answer says it is Waddle's. One that does not was put there by something in between.
+    res.setHeader('X-Waddle', '1');
+    settle(req);
     if (url === '/-/ping') {
       res.writeHead(204, { 'Cache-Control': 'no-store' });
       return res.end();
@@ -355,14 +405,16 @@ function createApp() {
         // document.cookie, kept in the session jar on the server
         const ref = proxy.realReferer(req);
         const sess = session(req, res, proxy.isSecure(req));
+        // A document embedded in another site's page is a third party there, and is treated like one.
+        const may = !!ref && proxy.cookiesAllowed(ref, proxy.ownerOf(sess, ref));
         if (req.method === 'POST') {
           const line = await readText(req);
-          if (ref && line) sess.jar.set(line, ref, true);
+          if (may && line) sess.jar.set(line, ref, true);
           res.writeHead(204, { 'Cache-Control': 'no-store' });
           return res.end();
         }
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(ref ? sess.jar.visible(ref) : '');
+        return res.end(may ? sess.jar.visible(ref) : '');
       }
       res.statusCode = 404;
       return res.end();
@@ -408,7 +460,7 @@ function createApp() {
   const server = http.createServer((req, res) => {
     route(req, res).catch((e) => {
       if (process.env.WADDLE_DEBUG) console.error(req.method, req.url, e);
-      if (!res.headersSent) proxy.errorPage(req, res, 500, 'Something broke', e && e.message);
+      if (!res.headersSent) proxy.errorPage(req, res, { status: 500, title: 'Something broke', detail: e && e.message });
       else res.destroy();
     });
   });
@@ -441,12 +493,22 @@ function createApp() {
         server.once('error', reject);
         server.listen(port, host, () => {
           pool.start();
+          // Keep the list of public resolvers current: looked at once a minute, refreshed when it is due.
+          chores = setInterval(() => {
+            if (resolver.due()) resolver.refresh().catch(() => {});
+          }, 60000);
+          chores.unref();
+          const first = setTimeout(() => {
+            if (resolver.due()) resolver.refresh().catch(() => {});
+          }, 15000);
+          first.unref();
           resolve(server.address());
         });
       });
     },
     close() {
       pool.stop();
+      clearInterval(chores);
       return new Promise((resolve) => {
         server.close(() => resolve());
         for (const s of sockets) s.destroy(); // includes upgraded (WebSocket) connections, which close() would wait on forever

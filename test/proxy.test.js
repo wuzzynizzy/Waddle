@@ -1,12 +1,15 @@
 'use strict';
-const { site, browser, get, world, closeAll, until, sleep } = require('./support');
+const { site, browser, get, world, judge, canary, doh, httpProxy, socks5Proxy, closeAll, until, sleep } = require('./support');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
+const path = require('path');
 const zlib = require('zlib');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const { createApp } = require('../server');
 const net = require('../lib/net');
+const { PAGE_CSP, GUARD_CSP } = require('../lib/proxy');
 
 const apps = [];
 test.after(async () => {
@@ -16,19 +19,53 @@ test.after(async () => {
 });
 test.afterEach(() => net.dropAgents());
 
-/** A Waddle server with the proxy pool off (traffic goes direct) unless a test says otherwise. */
-async function start(patch = {}) {
+// Waddle never connects to a site itself, so even the simplest test needs an exit. One is shared by every
+// test that does not care which: an HTTP proxy stand-in that the judge places in the United States.
+let shared;
+async function exits() {
+  if (!shared) shared = { judge: await judge('203.0.113.10', 'US'), canary: await canary(), px: await httpProxy() };
+  return shared;
+}
+
+/**
+ * A Waddle server with one live exit, cut off from everything outside this machine: no proxy lists,
+ * no resolver list, no system resolver. HTTPS-only is off unless a test asks for it, since the stand-in sites speak plain HTTP.
+ * @param {object} [opt] { exit: false } starts it with no proxy at all
+ */
+async function start(patch = {}, opt = {}) {
+  const k = await exits();
   const app = createApp();
   app.config.reset();
   app.config.patch(
-    Object.assign({ dns: { mode: 'system' } }, patch, {
-      pool: Object.assign({ on: false, sources: [], discover: false, checkTimeout: 1500 }, patch.pool),
+    Object.assign({}, patch, {
+      dns: Object.assign({ auto: false, fallback: false }, patch.dns),
+      route: Object.assign({ https: false }, patch.route),
+      pool: Object.assign(
+        { sources: [], discover: false, checkTimeout: 1500, judge: k.judge.url + '/trace', canaries: [k.canary.line], echo: '' },
+        patch.pool
+      ),
     })
   );
   const { port } = await app.listen(0, '127.0.0.1');
   apps.push(app);
-  return { app, port, b: browser(port), origin: 'http://127.0.0.1:' + port };
+  if (opt.exit !== false) {
+    app.pool.addManual('http://127.0.0.1:' + k.px.port);
+    await until(() => app.pool.alive.size === 1 && app.pool.summary().proxies[0].plain === true, 8000);
+    k.px.log.length = 0;
+  }
+  return { app, port, b: browser(port), origin: 'http://127.0.0.1:' + port, px: k.px };
 }
+
+/** The settings a proxied document starts with, as its page script reads them. */
+const bootOf = (html) =>
+  JSON.parse(
+    /data-w="([^"]+)"/
+      .exec(html)[1]
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+  );
 
 const PAGE =
   '<!doctype html><html><head><title>Fixture</title><link rel="stylesheet" href="/s.css"></head><body><a href="/next">next</a><img src="pic.png"><form action="/post" method="post"></form><script src="https://cdn.test/lib.js"></script></body></html>';
@@ -37,10 +74,13 @@ const PAGE =
 
 test('a page comes back rewritten, with the page script first in <head>', async () => {
   const s = await site({ '/dir/': { headers: { 'Content-Type': 'text/html; charset=utf-8' }, body: PAGE } });
-  const { b } = await start();
+  const { b, px } = await start();
   const r = await b.page(s.url + '/dir/');
   const P = '/~/' + s.url;
   assert.equal(r.status, 200);
+  assert.equal(r.headers['x-waddle'], '1', "every answer carries Waddle's mark");
+  assert.deepEqual(px.log, [s.host], 'the page was fetched through the exit, in a tunnel');
+  assert.equal(s.hits.length, 1);
   assert.equal(r.headers['content-type'], 'text/html; charset=utf-8');
   assert.match(r.text, /^<!doctype html><html><head><script src="\/-\/client\.js\?v=[\w-]+" data-w="[^"]+"><\/script><title>/);
   for (const want of [
@@ -51,17 +91,13 @@ test('a page comes back rewritten, with the page script first in <head>', async 
     'src="/~/https://cdn.test/lib.js"',
   ])
     assert.ok(r.text.includes(want), want);
-  const boot = JSON.parse(
-    /data-w="([^"]+)"/
-      .exec(r.text)[1]
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-  );
+  const boot = bootOf(r.text);
   assert.equal(boot.page.on, true);
   assert.match(boot.page.nav.ua, /Chrome\/\d+/);
   assert.equal(typeof boot.cookie, 'string');
+  assert.equal(boot.jar, true, 'the page in the address bar may keep cookies');
+  assert.equal(boot.part, undefined, 'and its storage is its own');
+  assert.equal(r.headers['content-security-policy'], PAGE_CSP, 'frames, plugins and form posts can only go to Waddle');
   assert.match(r.headers['server-timing'], /^up;dur=\d+, rw;dur=\d+$/, 'upstream and rewrite times are reported');
   assert.equal(r.headers['cache-control'], 'no-store', 'documents carry session state, so they are not cached');
 });
@@ -195,8 +231,11 @@ test('compressed and oddly encoded pages are decoded before rewriting', async ()
   assert.ok(meta.text.includes('caf\u00e9 \u20ac'), 'windows-1252 from <meta charset>');
   assert.ok((await b.page(s.url + '/sjis')).text.includes('\u65e5\u672c'), 'Shift_JIS');
   const bad = await b.page(s.url + '/badgzip');
-  assert.equal(bad.status, 502, 'a corrupt body is an error page, not a crash');
-  assert.equal(bad.headers['x-waddle-error'], '1');
+  assert.equal(bad.headers['x-waddle-error'], 'broken', 'a corrupt body is an error page, not a crash');
+  assert.equal(bad.headers['x-waddle-status'], '502');
+  assert.equal(bad.status, 200, 'sent as 200: see the edge test below');
+  assert.match(bad.text, /<h1>Could not load<\/h1>/);
+  assert.equal(bad.headers['content-security-policy'], undefined, "nothing of the site's answer is left on it");
 });
 
 test('redirects stay inside the proxy', async () => {
@@ -405,6 +444,67 @@ test('what the site sees: a clean, coherent browser, and nothing about the real 
   assert.equal(off['x-forwarded-for'], undefined);
 });
 
+test('header names reach the site spelled as a browser spells them, also when a front in between lower-cased them', async () => {
+  const s = await site({ '/': { body: PAGE } });
+  const { b, port } = await start();
+  const names = () => s.last().raw.filter((x, i) => i % 2 === 0);
+  // Straight from a browser: the names pass as they were written, the page's own included.
+  await b.page(s.url + '/', { headers: { 'User-Agent': 'RealBrowser/1.0', 'Upgrade-Insecure-Requests': '1', 'X-CUSTOM-thing': 'kept' } });
+  let seen = names();
+  assert.equal(seen[0], 'Host');
+  for (const n of [
+    'User-Agent',
+    'Accept',
+    'Upgrade-Insecure-Requests',
+    'X-CUSTOM-thing',
+    'Accept-Encoding',
+    'Accept-Language',
+    'DNT',
+    'Sec-GPC',
+  ])
+    assert.ok(seen.includes(n), n + ' in ' + seen.join(', '));
+
+  // Through an HTTP/2 host or CDN every name arrives in lower case. Sites are spoken to over HTTP/1.1,
+  // where no browser writes "user-agent": the usual spelling is put back.
+  const r = await get(port, '/~/' + s.url + '/', {
+    headers: {
+      host: '127.0.0.1:' + port,
+      connection: 'close',
+      'user-agent': 'RealBrowser/1.0',
+      accept: 'text/html,*/*',
+      'sec-fetch-site': 'none',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+      'upgrade-insecure-requests': '1',
+      'accept-language': 'fr',
+      'x-custom-thing': 'kept',
+      cookie: b.cookie,
+    },
+  });
+  assert.equal(r.status, 200);
+  seen = names();
+  assert.deepEqual(
+    seen.filter((n) => n === n.toLowerCase()),
+    [],
+    'no lower-case names among ' + seen.join(', ')
+  );
+  for (const n of [
+    'Host',
+    'User-Agent',
+    'Accept',
+    'Sec-Fetch-Site',
+    'Sec-Fetch-Mode',
+    'Sec-Fetch-Dest',
+    'Upgrade-Insecure-Requests',
+    'X-Custom-Thing',
+    'Accept-Language',
+    'DNT',
+    'Sec-GPC',
+  ])
+    assert.ok(seen.includes(n), n + ' in ' + seen.join(', '));
+  assert.equal(s.last().headers['x-custom-thing'], 'kept');
+});
+
 test('what the browser gets back: site headers that would break or escape the proxy are removed', async () => {
   const s = await site({
     '/': (req, res) => {
@@ -433,8 +533,8 @@ test('what the browser gets back: site headers that would break or escape the pr
   });
   const { b } = await start();
   const r = await b.page(s.url + '/');
+  assert.equal(r.headers['content-security-policy'], PAGE_CSP, "the site's policy is replaced by Waddle's own");
   for (const gone of [
-    'content-security-policy',
     'content-security-policy-report-only',
     'x-frame-options',
     'strict-transport-security',
@@ -445,6 +545,8 @@ test('what the browser gets back: site headers that would break or escape the pr
     'nel',
     'alt-svc',
     'clear-site-data',
+    'permissions-policy',
+    'link',
   ]) {
     assert.equal(r.headers[gone], undefined, gone);
   }
@@ -454,11 +556,6 @@ test('what the browser gets back: site headers that would break or escape the pr
   );
   assert.equal(r.headers['x-custom'], 'kept');
   assert.equal(r.headers['content-language'], 'en');
-  if (r.headers.link)
-    assert.ok(
-      !/<\/style\.css>|<https:\/\/cdn\.test/.test(r.headers.link),
-      'Link preloads may not point outside the proxy: ' + r.headers.link
-    );
   assert.equal(r.headers['referrer-policy'], 'same-origin', 'the browser never sends a Waddle address to anyone else');
 });
 
@@ -543,20 +640,32 @@ test('failures are explained: a readable page for documents, one line for everyt
   const s = await site({ '/slow': () => {}, '/': { body: PAGE } });
   const { b, app } = await start({ route: { timeout: 3000 } });
   const dead = await b.page('http://127.0.0.1:1/');
-  assert.equal(dead.status, 502);
-  assert.equal(dead.headers['x-waddle-error'], '1');
+  assert.equal(dead.headers['x-waddle-error'], 'connect');
+  assert.equal(dead.headers['x-waddle-status'], '502');
   assert.equal(dead.headers['content-type'], 'text/html; charset=utf-8');
-  assert.match(dead.text, /<h1>Could not connect<\/h1>/);
-  assert.match(dead.text, /Retry/);
+  assert.equal(dead.headers['cache-control'], 'no-store');
+  assert.match(dead.text, /<h1>Could not connect<\/h1><p>No exit that was tried could reach this address\. The site may be down\.<\/p>/);
+  assert.match(dead.text, /<div class="host">127\.0\.0\.1:1<\/div>/);
+  assert.match(dead.text, /<button class="go" data-act="retry">Try again<\/button><button data-act="exit" hidden>New exit<\/button>/);
   const sub = await b.fetch('http://127.0.0.1:1/x.js', s.url + '/', { dest: 'script' });
-  assert.equal(sub.status, 502);
+  assert.equal(sub.headers['x-waddle-error'], 'connect');
   assert.equal(sub.headers['content-type'], 'text/plain; charset=utf-8');
-  assert.equal(sub.text, 'Could not connect: Connection refused.');
+  assert.equal(sub.text, 'Could not connect: No exit that was tried could reach this address. The site may be down.');
+  const head = await b.fetch('http://127.0.0.1:1/x.js', s.url + '/', { dest: 'script', method: 'HEAD' });
+  assert.equal(head.headers['x-waddle-error'], 'connect');
+  assert.equal(head.body.length, 0);
 
-  const nx = await b.page('http://no-such-host.invalid/<script>alert(1)</script>?"><img/src=x/onerror=alert(2)>');
-  assert.equal(nx.status, 502);
-  assert.match(nx.text, /<h1>Site not found<\/h1>/);
+  // A site that is down is not the exit's fault: asking for it over and over costs the pool nothing.
+  for (let i = 0; i < 6; i++) await b.fetch('http://127.0.0.1:1/' + i + '.png', s.url + '/', { dest: 'image' });
+  assert.equal(app.pool.alive.size, 1);
+  assert.equal((await b.page(s.url + '/')).status, 200);
+
+  // With the exit looking names up, a name that does not exist looks like any other site it could not reach...
+  const hostile = 'http://no-such-host.invalid/<script>alert(1)</script>?"><img/src=x/onerror=alert(2)>';
+  const nx = await b.page(hostile);
+  assert.equal(nx.headers['x-waddle-error'], 'connect');
   assert.ok(!nx.text.includes('<script>alert(1)') && !nx.text.includes('<img/src=x'), 'the address is escaped in the error page');
+  assert.ok(!/<\/script>[^]*<\/script>[^]*<\/script>/.test(nx.text), 'and cannot close the script it is quoted in');
 
   for (const bad of [
     '/~/',
@@ -573,26 +682,282 @@ test('failures are explained: a readable page for documents, one line for everyt
   }
   const t0 = Date.now();
   const slow = await b.page(s.url + '/slow');
-  assert.equal(slow.status, 504);
-  assert.match(slow.text, /<h1>Timed out<\/h1><p>The site took too long to answer\./);
+  assert.equal(slow.headers['x-waddle-error'], 'timeout');
+  assert.equal(slow.headers['x-waddle-status'], '504');
+  assert.match(slow.text, /<h1>Timed out<\/h1><p>The proxies that were tried took too long\./);
   assert.ok(Date.now() - t0 < 6000, 'gave up after ' + (Date.now() - t0) + ' ms');
   const last = (await b.api('state')).json.pool.last;
   assert.equal(last.host, s.host);
-  assert.equal(last.error, 'timed out');
-  void app;
+  assert.equal(last.error, 'Timed out');
+  assert.deepEqual(last.hops, []);
+  assert.equal(app.pool.alive.size, 1, 'nor is a slow site held against the exit');
 });
 
-test('routing rules: block, and per-site overrides', async () => {
+test('a name that does not exist is reported as such when the resolvers are asked (through the exit)', async () => {
+  const d = await doh({ 'known.test': ['127.0.0.1'] });
+  const s = await site({ '/': { body: PAGE } });
+  const { b, px } = await start({ dns: { mode: 'stack', servers: [d.url], pad: false } });
+  const nx = await b.page('http://no-such-host.test/');
+  assert.equal(nx.headers['x-waddle-error'], 'dns');
+  assert.equal(nx.headers['x-waddle-status'], '502');
+  assert.match(nx.text, /<h1>Site not found<\/h1><p>There is no site at this address\.<\/p>/);
+  assert.deepEqual(px.log, ['127.0.0.1:' + d.port], 'the question itself went through the exit, and nothing else did');
+  // ...and a name that does exist reaches the exit as a number: the exit is told nothing it could look up.
+  px.log.length = 0;
+  const ok = await b.page('http://known.test:' + s.port + '/');
+  assert.equal(ok.status, 200);
+  assert.ok(ok.text.includes('Fixture'));
+  assert.equal(s.last().headers.host, 'known.test:' + s.port, 'the site is still asked for by name');
+  assert.ok(px.log.includes(s.host) && !px.log.some((l) => /known\.test/.test(l)), JSON.stringify(px.log));
+});
+
+test('statuses that a CDN or host in front of Waddle replaces with its own page are never sent as they are', async () => {
+  const codes = [502, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530];
+  const routes = { '/api': { status: 503, headers: { 'Content-Type': 'application/json' }, body: '{"busy":true}' } };
+  for (const c of codes)
+    routes['/' + c] = {
+      status: c,
+      headers: { 'Content-Type': 'text/html', 'X-Site': 'yes' },
+      body: '<html><head></head><body>site says ' + c + '</body></html>',
+    };
+  for (const c of [404, 500, 503])
+    routes['/' + c] = { status: c, headers: { 'Content-Type': 'text/html' }, body: '<html><body>site says ' + c + '</body></html>' };
+  const s = await site(routes);
+  const { b } = await start();
+  for (const c of codes) {
+    const doc = await b.page(s.url + '/' + c);
+    assert.equal(doc.status, 200, c + ' as a page');
+    assert.equal(doc.headers['x-waddle-status'], String(c));
+    assert.equal(doc.headers['x-waddle'], '1');
+    assert.equal(doc.headers['x-waddle-error'], undefined, "it is the site's page, not one of Waddle's");
+    assert.ok(
+      doc.text.includes('site says ' + c) && doc.text.includes('/-/client.js'),
+      "the site's own error page is shown, rewritten like any other"
+    );
+    assert.equal(doc.headers['x-site'], 'yes');
+    const sub = await b.fetch(s.url + '/' + c, s.url + '/', { dest: 'image' });
+    assert.equal(sub.status, 500, c + ' as a file: still a failure to the page that asked');
+    assert.equal(sub.headers['x-waddle-status'], String(c));
+  }
+  // Every other status is the site's own business and passes as it is.
+  for (const c of [404, 500, 503]) {
+    const doc = await b.page(s.url + '/' + c);
+    assert.equal(doc.status, c);
+    assert.equal(doc.headers['x-waddle-status'], undefined);
+  }
+  const api = await b.fetch(s.url + '/api', s.url + '/');
+  assert.equal(api.status, 503);
+  assert.equal(api.text, '{"busy":true}');
+  // Waddle's own failures follow the same rule, and say which kind they are.
+  const dead = await b.page('http://127.0.0.1:1/');
+  assert.deepEqual([dead.status, dead.headers['x-waddle-status'], dead.headers['x-waddle-error']], [200, '502', 'connect']);
+  const file = await b.fetch('http://127.0.0.1:1/a.css', s.url + '/', { dest: 'style' });
+  assert.deepEqual([file.status, file.headers['x-waddle-status'], file.headers['x-waddle-error']], [500, '502', 'connect']);
+});
+
+test('no proxy, no page: with nothing to route through, the site is never contacted', async () => {
+  const s = await site({ '/': { body: PAGE }, '/pic.png': { headers: { 'Content-Type': 'image/png' }, body: 'PNG' } });
+  const { b, app, px } = await start({}, { exit: false });
+  const none = await b.page(s.url + '/');
+  assert.equal(none.status, 200);
+  assert.equal(none.headers['x-waddle-error'], 'noproxy');
+  assert.equal(none.headers['x-waddle-status'], '502');
+  assert.match(none.text, /<h1>No proxy lists<\/h1>/);
+  assert.match(none.text, /<button data-act="proxies" hidden>Proxies<\/button>/);
+  const sub = await b.fetch(s.url + '/pic.png', s.url + '/', { dest: 'image' });
+  assert.equal(sub.status, 500);
+  assert.equal(sub.headers['x-waddle-error'], 'noproxy');
+  const post = await b.page(s.url + '/', { method: 'POST', body: 'a=1', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  assert.equal(post.headers['x-waddle-error'], 'noproxy');
+  let last = (await b.api('state')).json.pool.last;
+  assert.equal(last.error, 'No proxy lists');
+  assert.deepEqual(last.hops, []);
+
+  // Harvesting switched off and nothing added by hand
+  app.config.patch({ pool: { on: false } });
+  assert.match((await b.page(s.url + '/')).text, /<h1>No proxies<\/h1>/);
+  app.config.patch({ pool: { on: true } });
+
+  // A proxy that does not answer is no proxy: still searching, and the page says it will try again by itself.
+  const silent = await httpProxy({ dead: true });
+  app.pool.addManual('http://127.0.0.1:' + silent.port);
+  const searching = await b.page(s.url + '/');
+  assert.equal(searching.headers['x-waddle-error'], 'noproxy');
+  assert.match(searching.text, /<h1>Finding a proxy<\/h1>/);
+  assert.match(searching.text, /"retry":[46]/);
+
+  assert.equal(s.hits.length, 0, 'in all of this the site was never contacted');
+
+  // The moment one works, pages load.
+  app.pool.addManual('http://127.0.0.1:' + px.port);
+  await until(() => app.pool.alive.size === 1 && app.pool.summary().proxies[0].plain === true, 8000);
+  const ok = await b.page(s.url + '/');
+  assert.equal(ok.status, 200);
+  assert.ok(ok.text.includes('Fixture'));
+  last = (await b.api('state')).json.pool.last;
+  assert.equal(last.status, 200);
+  assert.equal(last.hops.length, 1);
+  assert.equal(last.hops[0].addr, '127.0.0.1:' + px.port);
+
+  // Filters that leave nothing are reported as such, not worked around.
+  app.config.patch({ route: { countries: ['FR'] } });
+  const filtered = await b.page(s.url + '/');
+  assert.match(filtered.text, /<h1>No proxy matches<\/h1>/);
+  app.config.patch({ route: { countries: [], protocols: ['socks5'] } });
+  assert.match((await b.page(s.url + '/')).text, /<h1>No proxy matches<\/h1>/);
+  assert.equal(s.hits.length, 1);
+});
+
+test('plain HTTP goes only through an exit that has proven it leaves such pages alone', async () => {
+  const s = await site({ '/': { body: PAGE } });
+  const k = await exits();
+  // This exit is alive, but it cannot fetch the known page (it only connects to the judge): unproven.
+  const blind = await httpProxy({ closed: [k.canary.port] });
+  const { b, app } = await start({}, { exit: false });
+  app.pool.addManual('http://127.0.0.1:' + blind.port);
+  await until(() => app.pool.alive.size === 1, 8000);
+  assert.equal(app.pool.summary().proxies[0].plain, false);
+  const r = await b.page(s.url + '/');
+  assert.equal(r.headers['x-waddle-error'], 'noproxy');
+  assert.match(r.text, /<h1>No safe proxy for plain HTTP<\/h1>/);
+  assert.equal(s.hits.length, 0);
+  assert.ok(!blind.log.includes(s.host), 'the unproven exit was not even asked');
+
+  // Nor is one that hands the known page back changed.
+  const liar = await httpProxy({ tamper: true });
+  app.pool.addManual('http://127.0.0.1:' + liar.port);
+  await until(() => app.pool.alive.size === 2, 8000);
+  assert.notEqual(app.pool.summary().proxies.find((x) => x.addr === liar.addr).plain, true);
+  assert.equal((await b.page(s.url + '/')).headers['x-waddle-error'], 'noproxy');
+  assert.equal(s.hits.length, 0);
+
+  // With an honest exit in the pool, plain pages load, and through that one alone.
+  app.config.patch({ route: { rotate: 'request' } });
+  app.pool.addManual('http://127.0.0.1:' + k.px.port);
+  await until(() => app.pool.summary().proxies.some((x) => x.addr === k.px.addr && x.plain === true), 8000);
+  k.px.log.length = 0;
+  for (let i = 0; i < 12; i++) assert.equal((await b.page(s.url + '/?' + i)).status, 200);
+  assert.equal(s.hits.length, 12);
+  assert.ok(k.px.log.includes(s.host));
+  assert.ok(!liar.log.includes(s.host) && !blind.log.includes(s.host), 'the other two never carried an unencrypted page');
+});
+
+test('HTTPS only: plain addresses are asked for over HTTPS, and staying on HTTP takes a deliberate yes', async () => {
+  const s = await site({ '/': { body: PAGE }, '/pic.png': { headers: { 'Content-Type': 'image/png' }, body: 'PNG' } });
+  const { b, port } = await start({ route: { https: true } });
+  const host = '127.0.0.1';
+  const up = await b.page(s.url + '/a?b=1');
+  assert.equal(up.status, 307);
+  assert.equal(up.headers.location, '/~/https://' + s.host + '/a?b=1');
+  assert.equal(up.headers['x-waddle-upgrade'], 'https');
+  const sub = await b.fetch(s.url + '/pic.png', s.url + '/', { dest: 'image' });
+  assert.equal(sub.status, 307, 'files too');
+  assert.equal(sub.headers.location, '/~/https://' + s.host + '/pic.png');
+  const frame = await b.raw('/~/f/' + s.url + '/', {
+    headers: { Accept: 'text/html', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate' },
+  });
+  assert.equal(frame.headers.location, '/~/f/https://' + s.host + '/', 'a frame stays a frame');
+  assert.equal(s.hits.length, 0, 'nothing was sent without encryption');
+
+  // The site has no HTTPS (the stand-in speaks plain HTTP): the error says so and offers the way on.
+  const tls = await b.page('https://' + s.host + '/');
+  assert.equal(tls.headers['x-waddle-error'], 'nohttps');
+  assert.match(tls.text, /<h1>No secure connection<\/h1><p>This site did not answer over HTTPS\.<\/p>/);
+  assert.match(tls.text, /<button data-act="plain" hidden>Continue without HTTPS<\/button>/);
+  s.hits.length = 0;
+
+  // A site that keeps sending visitors back to plain HTTP is not followed round in circles.
+  let loop;
+  for (let i = 0; i < 4; i++) loop = await b.page('http://localhost:' + s.port + '/loop');
+  assert.equal(loop.headers['x-waddle-error'], 'nohttps');
+  assert.match(loop.text, /This site only works without HTTPS\./);
+
+  // "Continue without HTTPS": this host, this session.
+  assert.equal((await b.api('plain', { host: 'not a host!' })).status, 400);
+  const st = (await b.api('plain', { host })).json;
+  assert.deepEqual(st.plain, [host]);
+  const ok = await b.page(s.url + '/');
+  assert.equal(ok.status, 200);
+  assert.ok(ok.text.includes('Fixture'));
+  const pic = (who, at) => who.fetch(at + '/pic.png', s.url + '/', { dest: 'image' });
+  assert.equal((await pic(b, s.url)).status, 200);
+  assert.equal((await pic(b, 'http://localhost:' + s.port)).status, 307, 'other hosts are still upgraded');
+  assert.equal((await pic(browser(port), s.url)).status, 307, 'and so is everybody else');
+  assert.deepEqual((await b.api('plain', { host, on: false })).json.plain, []);
+  assert.equal((await pic(b, s.url)).status, 307, 'the yes can be taken back');
+});
+
+test('private and local addresses are off limits, whatever the proxies would do with them', async () => {
+  // A fresh server with default safety (the suite itself runs with the override that lets it use 127.0.0.1).
+  const script = `
+    const { createApp } = require(${JSON.stringify(path.join(__dirname, '..', 'server.js'))});
+    const http = require('http');
+    const get = (port, p, headers) => new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port, path: p, headers, agent: false }, (res) => {
+        let body = ''; res.on('data', (c) => (body += c)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      }).on('error', reject);
+    });
+    (async () => {
+      const inner = http.createServer((q, s) => s.end('internal')).listen(0, '127.0.0.1');
+      await new Promise((r) => inner.once('listening', r));
+      const app = createApp();
+      app.config.reset();
+      app.config.patch({ pool: { sources: [], discover: false, canaries: [], echo: '' }, dns: { auto: false }, route: { https: false } });
+      const { port } = await app.listen(0, '127.0.0.1');
+      const out = {};
+      const doc = { Accept: 'text/html', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate' };
+      for (const host of ['127.0.0.1:' + inner.address().port, 'localhost:' + inner.address().port, '192.168.1.1', '10.0.0.1', '169.254.169.254', '[::1]', 'router.local', '0x7f.1', '2130706433']) {
+        for (const scheme of ['http', 'https']) {
+          const r = await get(port, '/~/' + scheme + '://' + host + '/', doc);
+          out[scheme + '://' + host] = [r.status, r.headers['x-waddle-error'], r.headers['x-waddle-status'], /<h1>Blocked<\\/h1>/.test(r.body)].join(' ');
+        }
+      }
+      const file = await get(port, '/~/http://192.168.1.1/x.png', { 'Sec-Fetch-Dest': 'image' });
+      out.file = [file.status, file.headers['x-waddle-error'], file.body].join(' ');
+      console.log(JSON.stringify(out));
+      await app.close();
+      inner.close();
+      process.exit(0);
+    })().catch((e) => { console.error(e); process.exit(1); });`;
+  const env = Object.assign({}, process.env, { WADDLE_DATA: path.join(process.env.WADDLE_DATA, 'private') });
+  delete env.WADDLE_ALLOW_PRIVATE;
+  const stdout = await new Promise((resolve, reject) =>
+    execFile(process.execPath, ['-e', script], { env, encoding: 'utf8', timeout: 30000 }, (e, so, se) =>
+      e ? reject(new Error(se || e.message)) : resolve(so)
+    )
+  );
+  const out = JSON.parse(stdout);
+  assert.equal(Object.keys(out).length, 19);
+  for (const [what, got] of Object.entries(out)) {
+    if (what === 'file') assert.equal(got, '403 private Blocked: Private and local addresses are off limits.');
+    else assert.equal(got, '200 private 403 true', what);
+  }
+});
+
+test('routing rules: block a site, or pin its country and chain length', async () => {
   const s = await site({ '/': { body: PAGE } });
   const { b, app } = await start({ route: { rules: ['localhost block'] } });
   const blocked = await b.page('http://localhost:' + s.port + '/');
-  assert.equal(blocked.status, 403);
-  assert.match(blocked.text, /<h1>Blocked<\/h1>/);
+  assert.equal(blocked.status, 200);
+  assert.equal(blocked.headers['x-waddle-status'], '403');
+  assert.equal(blocked.headers['x-waddle-error'], 'rule');
+  assert.match(blocked.text, /<h1>Blocked<\/h1><p>A routing rule blocks this site\.<\/p>/);
   assert.equal(s.hits.length, 0, 'a blocked site is never contacted');
   const sub = await b.fetch('http://localhost:' + s.port + '/ad.js', s.url + '/', { dest: 'script' });
   assert.equal(sub.status, 403);
   assert.match(sub.text, /^Blocked/);
   assert.equal((await b.page(s.url + '/')).status, 200, 'other sites are unaffected');
+  // There is no rule that sends a site around the proxies: one that tries is not a rule.
+  const st = (await b.api('config', { route: { rules: ['localhost direct', '127.0.0.1 direct', '* direct', 'localhost block'] } })).json;
+  assert.deepEqual(st.config.route.rules, ['localhost block']);
+  app.config.patch({ route: { rules: ['127.0.0.1 proxy FR'] } });
+  const none = await b.page(s.url + '/');
+  assert.equal(none.headers['x-waddle-error'], 'noproxy');
+  assert.match(none.text, /<h1>No proxy matches<\/h1>/);
+  assert.equal(s.hits.length, 1, 'a rule nothing can satisfy stops the page; it is not quietly ignored');
+  app.config.patch({ route: { rules: ['127.0.0.1 proxy US'] } });
+  assert.equal((await b.page(s.url + '/')).status, 200);
+  assert.equal((await b.api('state')).json.pool.last.rule, '127.0.0.1');
   app.config.patch({ route: { rules: [] } });
   assert.equal((await b.page('http://localhost:' + s.port + '/')).status, 200);
 });
@@ -682,19 +1047,21 @@ test('requests that escape rewriting are caught by their Referer and sent back i
 
 test('settings API: guarded, validated, and everything it changes takes effect', async () => {
   const s = await site({ '/': { body: PAGE } });
-  const { b, port, app } = await start();
+  const d = await doh({ 'looked-up.test': ['10.9.8.7'] });
+  const { b, port, app, px } = await start({ dns: { servers: [d.url], pad: false } });
   // guard
   assert.equal((await get(port, '/-/api/state')).status, 403, 'needs the custom header (which a cross-site form or image cannot send)');
   assert.equal(
     (
       await get(port, '/-/api/config', {
         method: 'POST',
-        body: '{"route":{"mode":"direct"}}',
+        body: '{"route":{"hops":3}}',
         headers: { 'Content-Type': 'application/json' },
       })
     ).status,
     403
   );
+  assert.equal(app.config.value.route.hops, 1);
   assert.equal(
     (
       await get(port, '/-/api/config', {
@@ -729,31 +1096,54 @@ test('settings API: guarded, validated, and everything it changes takes effect',
   assert.equal(huge.status, 413, 'an oversized settings body is refused with an answer, not a dropped connection');
   assert.equal((await b.api('pool', { action: 'explode' })).status, 400);
   assert.equal((await b.api('dns', { action: 'test', host: 'not a host!' })).status, 400);
+  assert.equal((await b.api('dns', { action: 'explode' })).status, 400);
   assert.equal((await b.api('pool', { action: 'source', text: 'not a source' })).status, 400);
 
   // state
-  const st = (await b.api('state')).json;
-  assert.deepEqual(Object.keys(st), ['config', 'options', 'pool', 'dns', 'cookies', 'uptime']);
-  assert.equal(st.config.route.mode, 'auto');
-  assert.ok(st.options.systems.length >= 9 && st.options.screens.length >= 10 && st.options.dns.length >= 8);
-  assert.equal(st.pool.on, false);
+  const first = await b.api('state');
+  assert.equal(first.headers['x-waddle'], '1');
+  assert.equal(first.headers['cache-control'], 'no-store');
+  const st = first.json;
+  assert.deepEqual(Object.keys(st), ['config', 'options', 'pool', 'dns', 'cookies', 'blocked', 'trackers', 'identity', 'plain', 'uptime']);
+  assert.equal(st.config.route.mode, undefined, 'there is no "direct" to choose');
+  assert.ok(
+    st.options.systems.length >= 12 && st.options.screens.length >= 10 && st.options.dns.length >= 8 && st.options.countries.length >= 100
+  );
+  assert.equal(st.options.maxHops, 5);
+  assert.equal(st.pool.health, 'ok');
+  assert.deepEqual([st.pool.alive, st.pool.usable, st.pool.plain], [1, 1, 1]);
+  assert.deepEqual(st.pool.countries, { US: 1 });
+  assert.equal(st.pool.last, null, 'nothing has been opened in this session yet');
+  assert.ok(st.trackers > 100);
+  assert.equal(st.blocked, 0);
+  assert.deepEqual(st.plain, []);
+  assert.equal(st.identity.id, 'win-chrome');
 
   // config
   const patched = (
     await b.api('config', { route: { mode: 'direct', hops: 2, rules: ['ads.test block', 'nonsense'] }, spoof: { theme: 'dark' }, nope: 1 })
   ).json;
-  assert.equal(patched.config.route.mode, 'direct');
+  assert.equal(patched.config.route.mode, undefined);
+  assert.equal(patched.config.nope, undefined);
   assert.equal(patched.config.route.hops, 2);
   assert.deepEqual(patched.config.route.rules, ['ads.test block']);
   assert.equal(app.config.value.spoof.theme, 'dark');
+  app.config.patch({ route: { hops: 1 } });
   const page = await b.page(s.url + '/');
-  assert.ok(page.text.includes('&quot;theme&quot;:&quot;dark&quot;'), 'the next page load carries the new identity');
+  assert.equal(bootOf(page.text).page.theme, 'dark', 'the next page load carries the new identity');
   const reset = (await b.api('config', { reset: true })).json;
-  assert.equal(reset.config.route.mode, 'auto');
+  const k = await exits(); // back to the rig's settings at once: the defaults name real hosts
+  app.config.patch({
+    dns: { auto: false, fallback: false, servers: [d.url], pad: false },
+    route: { https: false },
+    pool: { sources: [], discover: false, canaries: [k.canary.line], judge: k.judge.url + '/trace', echo: '' },
+  });
+  assert.equal(reset.config.route.hops, 1);
+  assert.equal(reset.config.route.https, true);
   assert.equal(reset.config.spoof.theme, 'real');
-  app.config.patch({ dns: { mode: 'system' }, pool: { on: false, sources: [], discover: false } });
+  assert.equal(reset.config.privacy.cookies, 'first');
 
-  // sources
+  // sources (the lists themselves are never downloaded here: their hosts do not exist for this rig's resolver)
   let r = (await b.api('pool', { action: 'source', text: 'https://github.com/owner/some-list' })).json;
   assert.deepEqual(r.config.pool.sources, [{ type: 'github', repo: 'owner/some-list', on: true }]);
   r = (await b.api('pool', { action: 'source', text: 'gitlab:group/list' })).json;
@@ -775,12 +1165,22 @@ test('settings API: guarded, validated, and everything it changes takes effect',
   );
   app.config.patch({ pool: { sources: [] } });
 
-  // dns
-  r = (await b.api('dns', { action: 'test', host: 'localhost' })).json;
-  assert.equal(r.host, 'localhost');
-  assert.equal(r.results[r.results.length - 1].name, 'system');
-  assert.equal(r.results[r.results.length - 1].address, '127.0.0.1');
+  // dns: the test question travels through the exit, like the lookups it stands for
+  px.log.length = 0;
+  r = (await b.api('dns', { action: 'test', host: 'https://Looked-Up.test/some/page' })).json;
+  assert.equal(r.host, 'looked-up.test');
+  assert.equal(r.results.length, 1);
+  assert.equal(r.results[0].address, '10.9.8.7');
+  assert.ok(r.results[0].ms >= 0);
+  assert.equal(r.via.length, 1);
+  assert.equal(r.via[0].addr, px.addr);
+  assert.ok(px.log.includes('127.0.0.1:' + d.port), 'asked through the exit');
+  assert.deepEqual(
+    d.log.filter((q) => q.name === 'looked-up.test'),
+    [{ name: 'looked-up.test', type: 1 }]
+  );
   assert.equal((await b.api('dns', { action: 'flush' })).status, 200);
+  assert.equal((await b.api('dns', { action: 'refresh' })).status, 200);
 });
 
 test('a page cannot use its own requests to reach the settings API', async () => {
@@ -794,12 +1194,28 @@ test('a page cannot use its own requests to reach the settings API', async () =>
   const { b, app } = await start();
   const r = await b.fetch(s.url + '/-/api/config', s.url + '/', {
     method: 'POST',
-    body: '{"route":{"mode":"direct"}}',
+    body: '{"route":{"hops":4}}',
     headers: { 'Content-Type': 'application/json', 'X-Waddle': '1' },
   });
   assert.equal(r.text, 'site saw /-/api/config');
-  assert.equal(app.config.value.route.mode, 'auto');
+  assert.equal(app.config.value.route.hops, 1);
   assert.equal(s.last().headers['x-waddle'], undefined);
+  // Nor can the site set Waddle's own marks on its answers: the shell would take its page for one of Waddle's.
+  const forged = await site({
+    '/': (req, res) => {
+      res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'X-Waddle-Error': 'noproxy',
+        'X-Waddle-Status': '502',
+        'X-Waddle-Cookie': 'a%3D1',
+        'X-Waddle-Upgrade': 'https',
+      });
+      res.end('<html><head></head><body>hello</body></html>');
+    },
+  });
+  const f = await b.page(forged.url + '/');
+  for (const h of ['x-waddle-error', 'x-waddle-status', 'x-waddle-cookie', 'x-waddle-upgrade']) assert.equal(f.headers[h], undefined, h);
+  assert.equal(f.headers['x-waddle'], '1');
 });
 
 test('other websites cannot use your session: only a plain top-level visit is served to them', async () => {
@@ -986,17 +1402,322 @@ test("WebSockets are relayed, with the real origin, the spoofed identity and the
   tool.close();
 });
 
+// ---- privacy --------------------------------------------------------------------------
+
+/** A document that the page at `from` embeds (an iframe): its address carries the frame mark. */
+const frameOf = (b, origin, url, from) =>
+  b.raw('/~/f/' + url, {
+    headers: { Accept: 'text/html,*/*', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate', Referer: origin + '/~/' + from },
+  });
+
+test('trackers and ad hosts are refused before anything leaves, and counted', async () => {
+  const s = await site({ '/': { body: PAGE } });
+  const { b, app, port, origin, px } = await start();
+  const from = s.url + '/';
+  await b.page(from);
+  px.log.length = 0;
+  const outside = () => px.log.filter((l) => !l.startsWith('127.0.0.1:')); // (the pool's own test page is on this machine)
+
+  const r = await b.fetch('https://www.google-analytics.com/analytics.js', from, { dest: 'script' });
+  assert.equal(r.status, 403);
+  assert.equal(r.headers['x-waddle-blocked'], 'tracker');
+  assert.equal(r.headers['x-waddle'], '1');
+  assert.equal(r.body.length, 0, 'to the page it is a request that failed, as with any blocker');
+  for (const u of [
+    'https://stats.g.doubleclick.net/collect?v=1',
+    'http://connect.facebook.net/en_US/fbevents.js',
+    'https://www.facebook.com/tr?id=1&ev=PageView',
+  ]) {
+    assert.equal((await b.fetch(u, from, { dest: 'image' })).headers['x-waddle-blocked'], 'tracker', u);
+  }
+  assert.deepEqual(outside(), [], 'no exit was asked for any of them');
+  // Only the tracking address of a site that is also a place people visit.
+  const fb = await b.fetch('https://www.facebook.com/somebody', from);
+  assert.equal(fb.headers['x-waddle-blocked'], undefined);
+  assert.deepEqual(outside(), ['www.facebook.com:443']);
+
+  // Opened as a page, a tracker gets an explanation instead of an empty answer.
+  const doc = await b.page('https://doubleclick.net/');
+  assert.deepEqual([doc.status, doc.headers['x-waddle-status'], doc.headers['x-waddle-error']], [200, '403', 'tracker']);
+  assert.match(doc.text, /<h1>Blocked<\/h1>/);
+  assert.ok(doc.text.includes('Tracker blocking is on'));
+  // Sockets too.
+  const sock = await ws(port, '/-/ws?u=' + encodeURIComponent('wss://analytics.tiktok.com/live') + '&o=' + encodeURIComponent(s.url), {
+    Cookie: b.cookie,
+    Origin: origin,
+  }).catch(() => ({ status: 'reset' }));
+  assert.equal(sock.status, 403);
+
+  assert.equal((await b.api('state')).json.blocked, 6, 'counted for this visitor');
+  assert.equal((await browser(port).api('state')).json.blocked, 0, 'and for nobody else');
+  assert.ok((await b.api('state')).json.trackers > 150);
+
+  // Off: the request goes out like any other.
+  app.config.patch({ privacy: { trackers: false } });
+  px.log.length = 0;
+  const off = await b.fetch('https://www.google-analytics.com/analytics.js', from, { dest: 'script' });
+  assert.equal(off.headers['x-waddle-blocked'], undefined);
+  assert.deepEqual(outside(), ['www.google-analytics.com:443']);
+});
+
+test('cookie policy: by default only the site in the address bar keeps cookies', async () => {
+  const seen = [];
+  const s = await site({
+    '*': (req, res, body, url) => {
+      const host = req.headers.host.split(':')[0];
+      const json = url.pathname.endsWith('.json');
+      seen.push({ host, path: url.pathname, cookie: req.headers.cookie || '' });
+      res.writeHead(200, { 'Content-Type': json ? 'application/json' : 'text/html', 'Set-Cookie': 'id=' + host + '; Path=/' });
+      res.end(json ? '{}' : '<html><head></head><body></body></html>');
+    },
+  });
+  const { b, app, origin } = await start();
+  // One server under two names: two sites, as far as cookies go.
+  const A = 'http://127.0.0.1:' + s.port;
+  const B = 'http://localhost:' + s.port;
+  const last = () => seen[seen.length - 1].cookie;
+  const scriptSees = async (doc) => (await b.raw('/-/cookie', { headers: { Referer: origin + '/~/' + doc } })).text;
+  const scriptSets = (doc, line) =>
+    b.raw('/-/cookie', { method: 'POST', body: line, headers: { 'Content-Type': 'text/plain', Referer: origin + '/~/' + doc } });
+
+  // -- first party only (the default)
+  let r = await b.page(A + '/');
+  assert.equal(bootOf(r.text).jar, true);
+  r = await b.fetch(B + '/pixel.json', A + '/');
+  assert.equal(last(), '');
+  assert.equal(r.headers['x-waddle-cookie'], undefined);
+  await b.fetch(B + '/pixel.json', A + '/');
+  assert.equal(last(), '', 'the cookie the third party tried to set was not kept');
+  r = await b.fetch(A + '/api.json', A + '/');
+  assert.equal(last(), 'id=127.0.0.1', "the page's own site gets its cookies");
+  assert.equal(decodeURIComponent(r.headers['x-waddle-cookie']), 'id=127.0.0.1');
+
+  // The other site inside a frame on the page: a guest. No cookies in, none out, none for its scripts.
+  r = await frameOf(b, origin, B + '/widget', A + '/');
+  assert.equal(last(), '');
+  let boot = bootOf(r.text);
+  assert.deepEqual([boot.jar, boot.cookie, boot.part], [false, '', '127.0.0.1']);
+  assert.equal(await scriptSees('f/' + B + '/widget'), '');
+  await scriptSets('f/' + B + '/widget', 'js=1; Path=/');
+  await b.fetch(B + '/data.json', 'f/' + B + '/widget');
+  assert.equal(last(), '', 'what the frame loads from its own site is third-party too');
+  // A page the frame moves on to stays a guest.
+  r = await b.raw('/~/' + B + '/widget2', {
+    headers: { Accept: 'text/html', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate', Referer: origin + '/~/f/' + B + '/widget' },
+  });
+  assert.equal(last(), '');
+  assert.equal(bootOf(r.text).part, '127.0.0.1');
+
+  // Opened in the address bar, the same site is the first party, and starts with nothing from before.
+  r = await b.page(B + '/');
+  assert.equal(last(), '');
+  assert.deepEqual([bootOf(r.text).jar, bootOf(r.text).part], [true, undefined]);
+  await b.fetch(B + '/api.json', B + '/');
+  assert.equal(last(), 'id=localhost');
+  assert.equal(await scriptSees(B + '/'), 'id=localhost');
+  // Back on the first page it is a third party again, cookies or not.
+  await b.fetch(B + '/pixel.json', A + '/');
+  assert.equal(last(), '');
+  r = await frameOf(b, origin, B + '/widget', A + '/');
+  assert.equal(last(), '');
+  assert.equal(bootOf(r.text).cookie, '');
+
+  // -- all: third parties keep cookies as well (their storage in a frame still stays apart)
+  app.config.patch({ privacy: { cookies: 'all' } });
+  await b.fetch(B + '/pixel.json', A + '/');
+  assert.equal(last(), 'id=localhost');
+  r = await frameOf(b, origin, B + '/widget', A + '/');
+  boot = bootOf(r.text);
+  assert.deepEqual([boot.jar, boot.cookie, boot.part], [true, 'id=localhost', '127.0.0.1']);
+  await scriptSets('f/' + B + '/widget', 'js=1; Path=/');
+  assert.equal(await scriptSees('f/' + B + '/widget'), 'id=localhost; js=1');
+
+  // -- none: nobody gets any, and nothing new is kept
+  app.config.patch({ privacy: { cookies: 'none' } });
+  r = await b.page(A + '/');
+  assert.equal(last(), '');
+  assert.equal(bootOf(r.text).jar, false);
+  assert.equal(await scriptSees(A + '/'), '');
+  await scriptSets(A + '/', 'late=1; Path=/');
+  app.config.patch({ privacy: { cookies: 'first' } });
+  await b.page(A + '/');
+  assert.equal(last(), 'id=127.0.0.1', 'what was there before is used again; nothing was added meanwhile');
+});
+
+test('workers start with the page script in front and the identity of their page', async () => {
+  const code = 'importScripts("/lib.js"); fetch("/api")';
+  const s = await site({
+    '/': { body: PAGE },
+    '/widget': { body: '<html><head></head><body></body></html>' },
+    '/w.js': { headers: { 'Content-Type': 'text/javascript' }, body: code },
+  });
+  const { b, origin } = await start();
+  const page = await b.page(s.url + '/');
+  const client = (await b.raw('/-/client.js')).text;
+
+  for (const dest of ['worker', 'sharedworker']) {
+    const r = await b.fetch(s.url + '/w.js', s.url + '/', { dest });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['content-security-policy'], GUARD_CSP, 'whatever gets past the page script can still only reach Waddle');
+    const m = /^self\.__waddle=(\{.*\});\n/.exec(r.text);
+    assert.ok(m, dest);
+    const boot = JSON.parse(m[1]);
+    assert.equal(boot.base, s.url + '/w.js', 'the address its relative URLs are meant against');
+    assert.deepEqual(boot.page, bootOf(page.text).page, 'the same identity as the page that started it');
+    assert.equal(boot.part, undefined);
+    assert.equal(r.text, m[0] + client + '\n' + code);
+  }
+  // Loaded as an ordinary script, the same file is left alone.
+  const plain = await b.fetch(s.url + '/w.js', s.url + '/', { dest: 'script' });
+  assert.equal(plain.text, code);
+  assert.equal(plain.headers['content-security-policy'], undefined);
+
+  // A worker started by a guest document keeps its storage apart, like the document.
+  const G = 'http://localhost:' + s.port;
+  await frameOf(b, origin, G + '/widget', s.url + '/');
+  const guest = await b.fetch(G + '/w.js', 'f/' + G + '/widget', { dest: 'worker' });
+  assert.equal(JSON.parse(/^self\.__waddle=(\{.*\});\n/.exec(guest.text)[1]).part, '127.0.0.1');
+
+  // Sites' own service workers would sit between the page and Waddle's: they are not served.
+  const hits = s.hits.length;
+  const sw = await b.fetch(s.url + '/w.js', s.url + '/', { dest: 'serviceworker' });
+  assert.equal(sw.status, 404);
+  assert.equal(s.hits.length, hits);
+});
+
+test('a request the service worker had to send again is read as what it was; nothing of Waddle’s reaches the site', async () => {
+  const css = 'body{background:url(/bg.png)}';
+  const html = '<html><head></head><body><a href="/x">x</a></body></html>';
+  const s = await site({
+    '/': { body: PAGE },
+    '/s.css': { headers: { 'Content-Type': 'text/css' }, body: css },
+    '/page': { body: html },
+    '/echo': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(req.headers));
+    },
+  });
+  const { b } = await start();
+  const from = s.url + '/';
+  // What the browser makes of a request a worker passes on: a script's fetch(), whatever it was before.
+  const resent = { 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Site': 'same-origin' };
+  const note = (dest, mode) => Object.assign({ 'X-Waddle-Dest': dest }, mode ? { 'X-Waddle-Mode': mode } : {}, resent);
+
+  let r = await b.fetch(s.url + '/s.css', from, { headers: note('style', 'no-cors') });
+  assert.equal(r.text, 'body{background:url(/~/' + s.url + '/bg.png)}', 'with the note it is a stylesheet again, and rewritten');
+  r = await b.fetch(s.url + '/s.css', from, { headers: resent });
+  assert.equal(r.text, css, 'without one it is data for a script, and left alone');
+
+  r = await b.fetch(s.url + '/echo', from, {
+    headers: Object.assign(note('image', 'no-cors'), {
+      'Service-Worker': 'script',
+      'Service-Worker-Navigation-Preload': 'true',
+      'X-Waddle-Extra': '1',
+    }),
+  });
+  const h = JSON.parse(r.text);
+  assert.deepEqual([h['sec-fetch-dest'], h['sec-fetch-mode'], h['sec-fetch-site']], ['image', 'no-cors', 'same-origin']);
+  for (const k of Object.keys(h)) assert.ok(!/^x-waddle|^service-worker/.test(k), k + ' must not reach the site');
+
+  // The note cannot turn a fetch() into a page: a page gets the visitor's cookies and identity written into it.
+  for (const dest of ['document', 'iframe', 'frame', 'embed', 'object', 'Not A Dest!']) {
+    r = await b.fetch(s.url + '/page', from, { headers: note(dest) });
+    assert.equal(r.text, html, dest);
+  }
+  // Nor does it mean anything on a request that is not a fetch().
+  r = await b.fetch(s.url + '/s.css', from, { dest: 'image', headers: { 'X-Waddle-Dest': 'style' } });
+  assert.equal(r.text, css);
+  // A navigation that reaches the server this way is still a page.
+  r = await b.raw('/~/' + s.url + '/page', { headers: { Accept: 'text/html', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Mode': 'navigate' } });
+  assert.ok(r.text.includes('/-/client.js') && r.text.includes('href="/~/' + s.url + '/x"'));
+});
+
+test('HTTPS only covers sockets: ws:// is asked for as wss://', async () => {
+  const s = await site({ '/': { body: PAGE } });
+  const { b, port, origin } = await start({ route: { https: true } });
+  await b.api('state');
+  const path = '/-/ws?u=' + encodeURIComponent('ws://' + s.host + '/socket') + '&o=' + encodeURIComponent(s.url);
+  const open = () => ws(port, path, { Cookie: b.cookie, Origin: origin }).catch(() => ({ status: 'reset' }));
+  const first = await open();
+  assert.notEqual(first.status, 101, 'the stand-in site has no TLS, so the socket fails');
+  assert.equal(s.hits.filter((x) => x.method === 'WS').length, 0, 'rather than being opened in the clear');
+  // Staying on plain HTTP for a host is a deliberate choice, and covers its sockets too.
+  assert.deepEqual((await b.api('plain', { host: '127.0.0.1', on: true })).json.plain, ['127.0.0.1']);
+  const second = await open();
+  assert.equal(second.status, 101);
+  assert.equal(await second.send('hi'), 'echo:hi');
+  second.close();
+});
+
+test('the check page shows what a site would see, by asking the test page through the exit a new site would get', async () => {
+  const { b, app, px, port } = await start();
+  const k = await exits();
+  const r = await b.page('https://check.waddle.invalid/');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers['x-waddle'], '1');
+  assert.equal(r.headers['cache-control'], 'no-store');
+  assert.ok(r.text.includes('visited from <b>203.0.113.10</b> in United States'), 'address and country as the test page saw them');
+  const shown = JSON.parse(/var D=(\{.*?\});var real=/.exec(r.text)[1]);
+  assert.deepEqual([shown.exit.ip, shown.exit.cc, shown.exit.hops.length, shown.exitError], ['203.0.113.10', 'US', 1, '']);
+  assert.match(shown.sent['User-Agent'], /Chrome\/\d+/);
+  assert.equal(shown.sent['Accept-Language'], 'en-US,en;q=0.9');
+  assert.deepEqual([shown.sent.DNT, shown.sent['Sec-GPC']], ['1', '1']);
+  assert.equal(shown.visitor, '', 'the visitor here is on this machine: no public address to show');
+  assert.deepEqual(shown.policy, {
+    geo: 'block',
+    dns: 'by the exit; your resolvers when it cannot',
+    https: false,
+    cookies: 'refused',
+    trackers: true,
+  });
+  assert.deepEqual(px.log, ['127.0.0.1:' + k.judge.port], 'only the test page was asked, and through the exit');
+  const boot = bootOf(r.text);
+  assert.deepEqual(
+    [boot.jar, boot.page.tz, boot.page.languages[0]],
+    [false, 'America/New_York', 'en-US'],
+    'the page reads itself with the identity a site would be shown'
+  );
+  const last = (await b.api('state')).json.pool.last;
+  assert.deepEqual([last.host, last.status, last.hops.length], ['waddle:check', 200, 1]);
+
+  // Behind a reverse proxy the visitor's own address is known, and shown to them for comparison (never sent anywhere).
+  const far = await b.page('https://check.waddle.invalid/', { headers: { 'X-Forwarded-For': '198.51.100.77, 10.0.0.1' } });
+  assert.equal(JSON.parse(/var D=(\{.*?\});var real=/.exec(far.text)[1]).visitor, '198.51.100.77');
+
+  // An exit that stops answering is said to have failed; with none at all the page says that.
+  px.opt.refuse = true;
+  net.dropAgents();
+  const bad = await b.page('https://check.waddle.invalid/');
+  px.opt.refuse = false;
+  assert.equal(bad.status, 200);
+  assert.match(JSON.parse(/var D=(\{.*?\});var real=/.exec(bad.text)[1]).exitError, /^The exit did not answer the test \(/);
+  assert.equal((await b.api('state')).json.pool.last.error, 'Exit failed');
+  app.pool.clear();
+  const none = await b.page('https://check.waddle.invalid/');
+  assert.equal(none.status, 200);
+  const told = JSON.parse(/var D=(\{.*?\});var real=/.exec(none.text)[1]);
+  assert.equal(told.exit, null);
+  assert.ok(told.exitError.length > 0 && none.text.includes('<p class="lead">' + told.exitError.replace(/&/g, '&amp;')), told.exitError);
+  assert.equal((await browser(port).page('https://check.waddle.invalid/')).status, 200);
+});
+
 // ---- through the pool ---------------------------------------------------------------------
 
-/** A server whose pool is fed by the little internet from support.world(). */
-async function routed(route, setup) {
+/** A server whose pool is fed by the little internet from support.world(): three exits, of three kinds, in three countries. */
+async function routed(route, setup, patch = {}) {
   const w = await world();
   if (setup) await setup(w);
-  const ctx = await start({
-    route: Object.assign({ mode: 'proxy', rotate: 'request' }, route),
-    pool: { on: true, sources: [{ type: 'url', url: w.listUrl, proto: null, on: true }], judge: w.judgeUrl },
-  });
-  await until(() => ctx.app.pool.summary().alive === 3, 8000);
+  const ctx = await start(
+    Object.assign({}, patch, {
+      route: Object.assign({ rotate: 'request' }, route),
+      pool: Object.assign(
+        { sources: [{ type: 'url', url: w.listUrl, proto: null, on: true }], judge: w.judgeUrl, canaries: [w.canary], echo: w.echoUrl },
+        patch.pool
+      ),
+    }),
+    { exit: false }
+  );
+  await until(() => ctx.app.pool.summary().plain === 3, 8000);
   for (const p of w.all) p.log.length = 0;
   return Object.assign(ctx, { w });
 }
@@ -1009,7 +1730,7 @@ const used = (w) =>
 
 test('pages are fetched through a live proxy, and the route is reported', async () => {
   const s = await site({ '/': { body: PAGE }, '/pic.png': { headers: { 'Content-Type': 'image/png' }, body: 'PNG' } });
-  const { b, w } = await routed({});
+  const { b, w, port } = await routed({});
   const r = await b.page(s.url + '/');
   assert.equal(r.status, 200);
   assert.ok(r.text.includes('Fixture'));
@@ -1018,21 +1739,96 @@ test('pages are fetched through a live proxy, and the route is reported', async 
     1,
     'exactly one proxy carried it'
   );
-  const last = (await b.api('state')).json.pool.last;
+  const state = (await b.api('state')).json;
+  const last = state.pool.last;
   assert.equal(last.host, s.host);
   assert.equal(last.status, 200);
-  assert.equal(last.direct, false);
+  assert.equal(last.direct, undefined, 'there is no such thing any more');
   assert.equal(last.attempts, 1);
   assert.equal(last.hops.length, 1);
   assert.equal(last.hops[0].cc, used(w), 'the exit shown is the exit used');
   assert.match(last.hops[0].addr, /^127\.0\.0\.1:\d+$/);
   assert.ok(last.ms >= 0);
+  assert.equal(state.identity.cc, last.hops[0].cc, 'and the identity shown is the one that page was given');
   // sub-resources go through the pool too, but do not replace the page's route report
   await b.fetch(s.url + '/pic.png', s.url + '/', { dest: 'image' });
   assert.equal((await b.api('state')).json.pool.last.at, last.at);
+  // the report is the visitor's own: nobody else sees where they have been
+  const other = (await browser(port).api('state')).json;
+  assert.equal(other.pool.last, null);
+  assert.equal(other.pool.alive, 3);
 });
 
-test('proxy over proxy: a 2- or 3-hop chain carries the page, entry first, exit last', async () => {
+test('a page and everything on it leave from one exit with one face; a frame that is turned away gets an exit of its own', async () => {
+  const html = '<html><head></head><body>ok</body></html>';
+  const mk = () =>
+    site({
+      '*': (req, res, body, url) => {
+        const img = url.pathname.endsWith('.png');
+        res.writeHead(200, { 'Content-Type': img ? 'image/png' : 'text/html' });
+        res.end(img ? 'PNG' : html);
+      },
+    });
+  const a = await mk(); // the site in the address bar
+  const g = await mk(); // a third party on its pages
+  const wall = await site({ '*': { status: 403, body: '<html><body>denied</body></html>' } });
+  const { b, app, w, origin } = await routed({ rotate: 'sticky', retries: 2 });
+  const A = 'http://127.0.0.1:' + a.port;
+  const G = 'http://localhost:' + g.port;
+  const went = (p, s) => p.log.filter((l) => (typeof l === 'string' ? l.endsWith(':' + s.port) : l.port === s.port)).length;
+  const through = (s) =>
+    w.all
+      .filter((p) => went(p, s))
+      .map((p) => p.cc)
+      .join(',');
+
+  const page = await b.page(A + '/');
+  const exit = (await b.api('state')).json.pool.last.hops[0];
+  const home = w.all.find((p) => p.addr === exit.addr);
+  for (let i = 0; i < 6; i++) await b.fetch(G + '/pic' + i + '.png', A + '/', { dest: 'image' });
+  const frame = await frameOf(b, origin, G + '/widget', A + '/');
+  assert.equal(frame.status, 200);
+  await b.fetch(G + '/inner.png', 'f/' + G + '/widget', { dest: 'image' });
+  assert.equal(through(a), home.cc);
+  assert.equal(through(g), home.cc, "the third party was met from the page's exit, and from no other");
+  // One face: the frame is told the same things about the browser as the page, and so is the third party's server.
+  const [top, sub] = [bootOf(page.text), bootOf(frame.text)];
+  assert.deepEqual(sub.page, top.page);
+  assert.equal(sub.part, '127.0.0.1', 'while its storage is kept apart from the same site opened on its own');
+  assert.equal(g.last().headers['accept-language'], a.hits[0].headers['accept-language']);
+  assert.equal(g.last().headers['user-agent'], a.hits[0].headers['user-agent']);
+  assert.equal((await b.api('state')).json.pool.last.host, a.host, 'the route that is reported is still the page’s, not the frame’s');
+
+  // The third party starts refusing the page's exit, and only that one.
+  home.map(g.port, wall.port);
+  net.dropAgents();
+  for (const p of w.all) p.log.length = 0;
+  const again = await frameOf(b, origin, G + '/widget?2', A + '/');
+  assert.equal(again.status, 200, 'the frame loads through another exit');
+  assert.equal(wall.hits.length, 1);
+  const side = w.all.find((p) => p !== home && went(p, g));
+  assert.ok(side);
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await frameOf(b, origin, G + '/widget?n=' + i, A + '/')).status, 200);
+    await b.fetch(G + '/more' + i + '.png', A + '/', { dest: 'image' });
+  }
+  assert.equal(wall.hits.length, 1, 'from then on it goes straight to the exit that works for it');
+  assert.equal(w.all.filter((p) => p !== home && went(p, g)).length, 1, 'one exit of its own, not a new one each time');
+  // And the page has not moved.
+  for (const p of w.all) p.log.length = 0;
+  for (let i = 0; i < 5; i++) assert.equal((await b.page(A + '/?' + i)).status, 200);
+  assert.equal(through(a), home.cc);
+  assert.equal((await b.api('state')).json.pool.last.hops[0].addr, exit.addr);
+  assert.equal(app.pool.alive.size, 3, 'being turned away by one site is nothing against a proxy');
+  for (const p of app.pool.summary().proxies) assert.equal(p.errs, 0, p.addr);
+
+  // Opened in the address bar, the third party is a site of its own: an exit of its own choosing, and no memory of the frame.
+  const own = await b.page(G + '/');
+  assert.equal(bootOf(own.text).part, undefined);
+  assert.equal((await b.api('state')).json.pool.last.host, 'localhost:' + g.port);
+});
+
+test('proxy over proxy: chains of 2 and 3 hops carry the page, and only the exit learns where it is going', async () => {
   const s = await site({ '/': { body: PAGE } });
   const { b, app, w } = await routed({ hops: 2 });
   let r = await b.page(s.url + '/');
@@ -1053,78 +1849,198 @@ test('proxy over proxy: a 2- or 3-hop chain carries the page, entry first, exit 
   const sawSite = (p) => JSON.stringify(p.log).includes(String(s.port));
   assert.ok(sawSite(exit), 'the exit connected to the site');
   for (const p of w.all) if (p !== exit) assert.ok(!sawSite(p), p.cc + ' (not the exit) never learned where the traffic was going');
+  const entry = w.all.find((p) => p.addr === last.hops[0].addr);
+  assert.equal(new Set(last.hops.map((h) => h.cc)).size, 3, 'spread over three countries');
+  assert.ok(entry !== exit);
+
+  // More hops than there are proxies: the longest chain that can be built, or, if that is not wanted, none.
+  app.config.patch({ route: { hops: 5 } });
+  r = await b.page(s.url + '/');
+  assert.equal(r.status, 200);
+  assert.equal((await b.api('state')).json.pool.last.hops.length, 3);
+  app.config.patch({ route: { shorten: false } });
+  const hits = s.hits.length;
+  r = await b.page(s.url + '/');
+  assert.equal(r.headers['x-waddle-error'], 'noproxy');
+  assert.match(r.text, /<h1>Not enough proxies<\/h1>/);
+  assert.equal(s.hits.length, hits);
+
+  // The first hop can be kept to named countries: it is the one proxy that sees this server's address.
+  app.config.patch({ route: { hops: 2, shorten: true, entry: ['JP'] } });
+  for (let i = 0; i < 10; i++) {
+    r = await b.page(s.url + '/?' + i);
+    assert.equal(r.status, 200);
+    last = (await b.api('state')).json.pool.last;
+    assert.deepEqual([last.hops.length, last.hops[0].cc], [2, 'JP']);
+    assert.notEqual(last.hops[1].cc, 'JP', 'so the Japanese proxy is never the exit: there would be nothing to put in front of it');
+  }
+  app.config.patch({ route: { entry: ['FR'] } });
+  r = await b.page(s.url + '/');
+  assert.equal(r.headers['x-waddle-error'], 'noproxy');
+  assert.match(r.text, /<h1>No entry proxy<\/h1>/);
 });
 
-test('per-site rules pick the country, the chain length, or no proxy at all', async () => {
+test('per-site rules pick the country and the chain length; the identity follows the exit', async () => {
   const s = await site({ '/': { body: PAGE } });
   const { b, app, w } = await routed({ rules: [] });
   const load = async (host) => {
     for (const p of w.all) p.log.length = 0;
     s.hits.length = 0;
     const r = await b.page('http://' + host + ':' + s.port + '/');
-    return { r, last: (await b.api('state')).json.pool.last };
+    return { r, last: (await b.api('state')).json.pool.last, seen: s.last() };
   };
 
-  app.config.patch({ route: { rules: ['127.0.0.1 proxy JP'] } });
+  app.config.patch({ route: { rules: ['127.0.0.1 proxy JP', 'localhost proxy DE'] } });
   for (let i = 0; i < 5; i++) {
     const { last } = await load('127.0.0.1');
     assert.equal(last.hops[0].cc, 'JP');
     assert.equal(last.rule, '127.0.0.1');
   }
+  // A page that leaves from Japan speaks Japanese and keeps Tokyo time; one that leaves from Germany, German and Berlin time.
+  const jp = await load('127.0.0.1');
+  assert.equal(jp.seen.headers['accept-language'], 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7');
+  assert.deepEqual(bootOf(jp.r.text).page.languages, ['ja-JP', 'ja', 'en-US', 'en']);
+  assert.equal(bootOf(jp.r.text).page.tz, 'Asia/Tokyo');
+  const de = await load('localhost');
+  assert.equal(de.last.hops[0].cc, 'DE');
+  assert.equal(de.seen.headers['accept-language'], 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7');
+  assert.equal(bootOf(de.r.text).page.tz, 'Europe/Berlin');
+  assert.equal(
+    bootOf(de.r.text).page.nav.ua,
+    bootOf(jp.r.text).page.nav.ua,
+    'the browser stays the same; only where it seems to be changes'
+  );
+  const id = (await b.api('state')).json.identity;
+  assert.deepEqual([id.cc, id.tz, id.languages[0]], ['DE', 'Europe/Berlin', 'de-DE']);
+  // Fixed values, when asked for, win over the exit's.
+  app.config.patch({ spoof: { languages: 'pt-BR,pt', timezone: 'America/Sao_Paulo' } });
+  const fixed = await load('127.0.0.1');
+  assert.equal(fixed.seen.headers['accept-language'], 'pt-BR,pt;q=0.9');
+  assert.equal(bootOf(fixed.r.text).page.tz, 'America/Sao_Paulo');
+  app.config.patch({ spoof: { languages: 'exit', timezone: 'exit' } });
+
   app.config.patch({ route: { rules: ['127.0.0.1 proxy hops=2'] } });
   assert.equal((await load('127.0.0.1')).last.hops.length, 2);
-  app.config.patch({ route: { rules: ['127.0.0.1 direct'] } });
-  const direct = await load('127.0.0.1');
-  assert.equal(direct.last.direct, true);
-  assert.equal(used(w), '', 'no proxy was touched');
-  assert.equal(s.hits.length, 1);
+  app.config.patch({ route: { rules: ['127.0.0.1 proxy US,DE hops=3'] } });
+  for (let i = 0; i < 4; i++) {
+    const { last } = await load('127.0.0.1');
+    assert.equal(last.hops.length, 3);
+    assert.ok(['US', 'DE'].includes(last.hops[2].cc), 'the countries in a rule are about the exit');
+  }
   app.config.patch({ route: { rules: ['127.0.0.1 proxy FR'] } });
   const none = await load('127.0.0.1');
-  assert.equal(none.r.status, 502);
-  assert.match(none.r.text, /No working proxy/);
-  assert.equal(s.hits.length, 0, 'proxy-only means it never silently goes direct');
+  assert.equal(none.r.headers['x-waddle-error'], 'noproxy');
+  assert.match(none.r.text, /<h1>No proxy matches<\/h1>/);
+  assert.equal(s.hits.length, 0);
+  assert.equal(used(w), '', 'and no proxy was bothered with it');
 });
 
-test('when an exit is refused by the site (403/429/503), another exit is tried; then direct, if allowed', async () => {
+test('when an exit is refused by the site (403/429/503), another exit is tried; when all are, the refusal is the answer', async () => {
   const s = await site({ '/': { body: PAGE } });
   const wall = await site({ '*': { status: 403, body: '<html><body>Access denied for your region</body></html>' } });
-  // The US and DE exits are blocked by this site; JP is welcome.
-  const some = await routed({ retries: 2 }, (w) => {
+  // The US and DE exits are blocked by this site; JP is welcome. The site starts out on the US exit.
+  const some = await routed({ retries: 2, rotate: 'sticky' }, (w) => {
     w.h.map(s.port, wall.port);
     w.s5.map(s.port, wall.port);
   });
-  for (let i = 0; i < 12; i++) {
-    const r = await some.b.page(s.url + '/?n=' + i);
-    assert.equal(r.status, 200, 'request ' + i);
-    assert.ok(r.text.includes('Fixture'));
-  }
-  assert.ok(wall.hits.length > 0, 'blocked exits were met and rotated away from');
-  const last = (await some.b.api('state')).json.pool.last;
+  some.app.pool.pin('127.0.0.1', { key: some.w.h.key });
+  const first = await some.b.page(s.url + '/');
+  assert.equal(first.status, 200);
+  assert.ok(first.text.includes('Fixture'));
+  const met = wall.hits.length;
+  assert.ok(met === 1 || met === 2, 'the blocked exits that were met (' + met + ') were moved away from');
+  let last = (await some.b.api('state')).json.pool.last;
+  assert.deepEqual([last.hops[0].cc, last.attempts], ['JP', met + 1]);
+  for (let i = 0; i < 12; i++) assert.equal((await some.b.page(s.url + '/?n=' + i)).status, 200, 'request ' + i);
+  assert.equal(wall.hits.length, met, 'and the site stays with the exit that is welcome: it is not asked through the others again');
+  // Every request its own exit: the ones that were turned away are remembered all the same.
+  some.app.config.patch({ route: { rotate: 'request' } });
+  for (let i = 0; i < 12; i++) assert.equal((await some.b.page(s.url + '/?m=' + i)).status, 200);
+  assert.ok(wall.hits.length <= 2, 'each blocked exit is met once at most (' + wall.hits.length + ')');
+  last = (await some.b.api('state')).json.pool.last;
   assert.equal(last.hops[0].cc, 'JP');
+  assert.equal(some.app.pool.alive.size, 3, 'being turned away by one site is nothing against a proxy');
+  for (const p of some.app.pool.summary().proxies) assert.equal(p.errs, 0, p.addr);
   await some.app.close();
 
-  // Every exit blocked: "auto" falls back to a direct connection...
+  // Every exit blocked: the site's own refusal is handed over. There is no other way to the site.
   const s2 = await site({ '/': { body: PAGE } });
-  const all = await routed({ mode: 'auto', retries: 2 }, (w) => {
+  const all = await routed({ retries: 3 }, (w) => {
     for (const p of w.all) p.map(s2.port, wall.port);
   });
   wall.hits.length = 0;
-  const r = await all.b.page(s2.url + '/');
-  assert.equal(r.status, 200);
-  assert.ok(r.text.includes('Fixture'));
-  const fell = (await all.b.api('state')).json.pool.last;
-  assert.equal(fell.direct, true);
-  assert.equal(fell.fellBack, true);
-  assert.equal(fell.attempts, 4, 'three exits, then direct');
-  assert.equal(wall.hits.length, 3);
-
-  // ...while "proxy" hands over the site's own refusal rather than exposing your address.
-  all.app.config.patch({ route: { mode: 'proxy' } });
-  s2.hits.length = 0;
   const refused = await all.b.page(s2.url + '/');
   assert.equal(refused.status, 403);
+  assert.equal(refused.headers['x-waddle-error'], undefined, "the site's own page");
   assert.ok(refused.text.includes('Access denied for your region'));
+  assert.equal(wall.hits.length, 3, 'each exit had its go');
+  assert.equal((await all.b.api('state')).json.pool.last.attempts, 3);
   assert.equal(s2.hits.length, 0);
+});
+
+test('a site that is down costs the pool nothing; an exit that fails where another gets through is marked down, and only what it failed for moves', async () => {
+  const s = await site({ '/': { body: PAGE }, '/pic.png': { headers: { 'Content-Type': 'image/png' }, body: 'PNG' } });
+  const lib = await site({ '/lib.js': { headers: { 'Content-Type': 'text/javascript' }, body: 'var x = 1;' } });
+  const odd = await site({
+    '*': { status: 407, headers: { 'Content-Type': 'text/plain', 'Proxy-Authenticate': 'Basic realm="x"' }, body: 'who goes there' },
+  });
+  const { b, app, w } = await routed({ retries: 3 });
+  const errs = (p) => app.pool.summary().proxies.find((x) => x.addr === p.addr).errs;
+  const went = (p, to) => p.log.filter((l) => (typeof l === 'string' ? l.endsWith(':' + to.port) : l.port === to.port)).length;
+  const gone = 'http://127.0.0.1:1';
+  for (let i = 0; i < 5; i++) {
+    const r = await b.page(gone + '/?' + i);
+    assert.equal(r.headers['x-waddle-error'], 'connect');
+  }
+  for (let i = 0; i < 10; i++) await b.fetch(gone + '/' + i + '.js', s.url + '/', { dest: 'script' });
+  assert.equal(used(w), 'DE,JP,US', 'every exit was asked');
+  // A site that answers 407 is a site with an odd answer. Everything is tunnelled, so it cannot be the proxy speaking.
+  const r407 = await b.page(odd.url + '/');
+  assert.equal(r407.status, 407);
+  assert.equal(r407.headers['proxy-authenticate'], undefined);
+  assert.equal(odd.hits.length, 1, 'passed on as it came, not tried again elsewhere');
+  assert.equal(app.pool.alive.size, 3, 'and no proxy is the worse for any of it');
+  for (const p of w.all) assert.equal(errs(p), 0, p.cc);
+
+  // The page's exit cannot reach one third party on the page; the other exits can.
+  app.config.patch({ route: { rotate: 'sticky' } });
+  await b.page(s.url + '/');
+  const first = (await b.api('state')).json.pool.last.hops[0];
+  const home = w.all.find((p) => p.addr === first.addr);
+  home.map(lib.port, w.dead);
+  for (let i = 0; i < 5; i++) {
+    const r = await b.fetch('http://localhost:' + lib.port + '/lib.js', s.url + '/', { dest: 'script' });
+    assert.deepEqual([r.status, r.text], [200, 'var x = 1;'], 'the file arrives all the same, through another exit');
+  }
+  assert.equal(errs(home), 1, 'held against it once: after that the third party is sent another way from the start');
+  assert.ok(app.pool.alive.has(home.key), 'it still passes the pool’s own test, so it stays in the pool');
+  const carriers = () =>
+    w.all
+      .filter((p) => went(p, s))
+      .map((p) => p.cc)
+      .join(',');
+  net.dropAgents(); // (new connections, so that the stand-ins see who carries what)
+  for (const p of w.all) p.log.length = 0;
+  for (let i = 0; i < 5; i++) assert.equal((await b.page(s.url + '/?' + i)).status, 200);
+  await b.fetch(s.url + '/pic.png', s.url + '/', { dest: 'image' });
+  assert.equal(carriers(), home.cc, 'and the page has stayed where it was: one file does not move it');
+
+  // Now it cannot reach the site itself any more.
+  home.map(s.port, w.dead);
+  net.dropAgents();
+  const r = await b.page(s.url + '/');
+  assert.equal(r.status, 200, 'the page still loads');
+  const moved = (await b.api('state')).json.pool.last;
+  assert.equal(moved.attempts, 2);
+  assert.notEqual(moved.hops[0].addr, home.addr);
+  assert.equal(errs(home), 2);
+  net.dropAgents();
+  for (const p of w.all) p.log.length = 0;
+  for (let i = 0; i < 10; i++) assert.equal((await b.page(s.url + '/?again' + i)).status, 200);
+  await b.fetch(s.url + '/pic.png', s.url + '/', { dest: 'image' });
+  assert.equal(carriers(), w.all.find((p) => p.addr === moved.hops[0].addr).cc, 'the site is not asked for through that exit again');
+  assert.equal((await b.api('state')).json.pool.last.hops[0].addr, moved.hops[0].addr, 'it stays with the one that worked');
+  assert.equal(app.pool.alive.size, 3);
 });
 
 test('a request with a body is never sent twice', async () => {
@@ -1133,47 +2049,69 @@ test('a request with a body is never sent twice', async () => {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('order placed');
     },
+    '/slow': () => {},
   });
   const wall = await site({ '*': { status: 503, body: 'try later' } });
-  const { b, app, w } = await routed({ mode: 'auto', retries: 2 }, (x) => {
+  const { b, app, w } = await routed({ retries: 3, timeout: 1500 }, (x) => {
     for (const p of x.all) p.map(s.port, wall.port);
   });
-  const r = await b.fetch(s.url + '/buy', s.url + '/', {
-    method: 'POST',
-    body: 'item=1',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
+  const post = (path, body) =>
+    b.fetch(s.url + path, s.url + '/', { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  const r = await post('/buy', 'item=1');
   assert.equal(r.status, 503, 'the first answer stands');
   assert.equal(wall.hits.length, 1, 'one exit, one attempt');
-  assert.equal(s.hits.length, 0, 'and no second submission over a direct connection');
+  assert.equal(s.hits.length, 0);
+
+  // Sent, and then silence: it may have arrived. It is not sent again through another exit.
+  for (const p of w.all) {
+    delete p.opt.ports[s.port];
+    p.log.length = 0;
+  }
+  net.dropAgents();
+  const hung = await post('/slow', 'item=2');
+  assert.equal(hung.headers['x-waddle-error'], 'timeout');
+  assert.equal(s.hits.filter((h) => h.path === '/slow').length, 1, 'the site got it once');
+  assert.equal(w.all.filter((p) => JSON.stringify(p.log).includes(String(s.port))).length, 1, 'and no second exit was handed it');
 
   // If the exit is dead before anything was sent, moving on is safe.
-  for (const p of w.all) await p.close();
+  await w.h.close();
+  await w.s5.close();
   net.dropAgents();
-  const again = await b.fetch(s.url + '/buy', s.url + '/', {
-    method: 'POST',
-    body: 'item=2',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  assert.equal(again.status, 200);
-  assert.equal(again.text, 'order placed');
-  assert.equal(s.hits.length, 1, 'delivered exactly once');
-  assert.equal(s.hits[0].body, 'item=2');
-  await until(() => app.pool.summary().alive === 0, 5000);
+  for (const p of w.all) p.log.length = 0;
+  for (let i = 0; i < 6; i++) {
+    const again = await post('/buy', 'n=' + i);
+    assert.equal(again.status, 200);
+    assert.equal(again.text, 'order placed');
+  }
+  const bought = s.hits.filter((h) => h.path === '/buy');
+  assert.deepEqual(
+    bought.map((h) => h.body),
+    ['n=0', 'n=1', 'n=2', 'n=3', 'n=4', 'n=5'],
+    'each delivered exactly once, by the exit that is left'
+  );
+  assert.ok(app.pool.alive.has(w.s4.key), 'the exit that delivered them is still in the pool');
+
+  // With no exit left at all, nothing is delivered and nothing goes out some other way.
+  await w.s4.close();
+  net.dropAgents();
+  const lost = await post('/buy', 'n=7');
+  assert.ok(['connect', 'noproxy'].includes(lost.headers['x-waddle-error']), lost.headers['x-waddle-error']);
+  assert.equal(s.hits.filter((h) => h.path === '/buy').length, 6);
 });
 
 test('pool actions from the settings panel: add by hand, rotate, speed test, clear', async () => {
   const w = await world();
   const s = await site({ '/': { body: PAGE } });
-  const { b, app } = await start({ route: { mode: 'proxy', rotate: 'sticky' }, pool: { on: true, sources: [], judge: w.judgeUrl } });
+  const { b, app } = await start({ route: { rotate: 'sticky' }, pool: { judge: w.judgeUrl, canaries: [w.canary] } }, { exit: false });
   let r = (await b.api('pool', { action: 'add', text: `socks5://127.0.0.1:${w.s5.port}\n127.0.0.1:${w.h.port}\nrubbish`, proto: '' })).json;
   assert.equal(r.added, 2);
   r = (await b.api('pool', { action: 'add', text: '127.0.0.1:' + w.s4.port, proto: 'socks4' })).json;
   assert.equal(r.added, 1);
-  await until(() => app.pool.summary().alive === 3, 8000);
+  await until(() => app.pool.summary().plain === 3, 8000);
   const st = (await b.api('state')).json.pool;
   assert.equal(st.alive, 3);
   assert.deepEqual(st.countries, { US: 1, DE: 1, JP: 1 });
+  assert.deepEqual(st.byProto, { http: 1, socks4: 1, socks5: 1 });
   assert.equal(st.sources.find((x) => x.id === 'manual').count, 3);
 
   // sticky: the same exit for a site until "New exit"
@@ -1193,9 +2131,9 @@ test('pool actions from the settings panel: add by hand, rotate, speed test, cle
   assert.ok(moved, 'rotate picks a new exit');
 
   r = (await b.api('pool', { action: 'speed', url: s.url + '/' })).json;
-  assert.equal(r.results.length, 4);
-  assert.equal(r.results[0].via, 'direct');
+  assert.equal(r.results.length, 3, 'one row per exit, and none for a direct connection');
   for (const row of r.results) {
+    assert.match(row.via, /^(http|socks4|socks5):\/\/127\.0\.0\.1:\d+ (US|DE|JP)$/);
     assert.equal(row.status, 200);
     assert.ok(row.ms >= 0 && row.ms < 2000);
   }
@@ -1204,5 +2142,5 @@ test('pool actions from the settings panel: add by hand, rotate, speed test, cle
   r = (await b.api('pool', { action: 'clear' })).json;
   assert.equal(r.pool.alive, 0);
   assert.equal(r.pool.found, 0);
-  void sleep;
+  assert.equal((await b.page(s.url + '/')).headers['x-waddle-error'], 'noproxy');
 });

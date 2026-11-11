@@ -1,7 +1,7 @@
 {
   "name": "waddle",
-  "version": "1.0.0",
-  "description": "A minimal web proxy you run yourself: a self-feeding rotating pool of free proxies, proxy chaining, encrypted DNS and browser identity spoofing.",
+  "version": "2.0.0",
+  "description": "A web proxy you run yourself that reaches sites only through other proxies: a self-feeding, vetted pool of free proxies, proxy chains, name lookups that leave through the exit, and a browser identity that follows it.",
   "private": true,
   "main": "server.js",
   "engines": {

@@ -1,7 +1,8 @@
 'use strict';
 // Shared test kit: an isolated data directory plus small local stand-ins for everything
 // Waddle talks to (web sites, HTTP/SOCKS proxies, a DNS-over-HTTPS server, a judge), so
-// the whole suite runs offline. Require this before anything from ../lib.
+// the whole suite runs offline. The proxy stand-ins connect to this machine and nowhere
+// else, whatever they are asked for. Require this before anything from ../lib.
 
 const fs = require('fs');
 const os = require('os');
@@ -119,11 +120,27 @@ async function site(routes = {}) {
 
 /** Where a proxy stand-in really connects: `hosts` plays the part of DNS at the exit, `ports` lets each exit reach its own copy of a service (as if it sat in another country). */
 function dial(opt, host, port) {
-  const mapped = opt.hosts && opt.hosts[host];
-  return net.connect({ host: mapped || host, port: (opt.ports && opt.ports[port]) || port });
+  const to = reach(opt, host);
+  if (!to) {
+    // Nothing outside this machine exists for a stand-in: not a name the system resolver knows, not an address on the internet.
+    const s = new net.Socket();
+    process.nextTick(() => s.emit('error', Object.assign(new Error('unreachable from the test rig: ' + host), { code: 'EHOSTUNREACH' })));
+    return s;
+  }
+  return net.connect({ host: to, port: (opt.ports && opt.ports[port]) || port });
+}
+/** The loopback address a stand-in proxy uses for `host`, or '' when the host is not on this machine. */
+function reach(opt, host) {
+  // "localhost" is pinned to IPv4, where every stand-in listens: which family a machine prefers must not decide a test.
+  const to = (opt.hosts && opt.hosts[host]) || (host === 'localhost' ? '127.0.0.1' : host);
+  return /^127\.\d+\.\d+\.\d+$/.test(to) ? to : '';
 }
 
-/** HTTP CONNECT proxy. Options: auth 'user:pass', hosts {name: ip}, refuse (status), dead (accept then hang). */
+/**
+ * HTTP CONNECT proxy. Options: auth 'user:pass', hosts {name: ip}, refuse (status), dead (accept then hang),
+ * closed [ports it will not connect to] (the way many proxies allow 443 and nothing else),
+ * tamper (changes what passes through its tunnels: only unencrypted pages can be changed that way).
+ */
 async function httpProxy(opt = {}) {
   const log = [];
   // Plain HTTP is forwarded the classic way: "GET http://host/path" sent to the proxy itself.
@@ -149,10 +166,14 @@ async function httpProxy(opt = {}) {
     delete headers['proxy-connection'];
     delete headers['proxy-authorization'];
     if (opt.via) headers.via = '1.1 mock'; // what a "transparent" proxy adds
-    const mapped = opt.hosts && opt.hosts[u.hostname];
+    const to = reach(opt, u.hostname);
+    if (!to) {
+      res.writeHead(502);
+      return res.end();
+    }
     const up = http.request(
       {
-        host: mapped || u.hostname,
+        host: to,
         port: (opt.ports && opt.ports[u.port]) || u.port || 80,
         path: u.pathname + u.search,
         method: req.method,
@@ -179,13 +200,19 @@ async function httpProxy(opt = {}) {
       return socket.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
     }
     const at = req.url.lastIndexOf(':');
-    const up = dial(opt, req.url.slice(0, at).replace(/^\[|\]$/g, ''), Number(req.url.slice(at + 1)));
+    const port = Number(req.url.slice(at + 1));
+    if (opt.closed && opt.closed.includes(port)) return socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+    const up = dial(opt, req.url.slice(0, at).replace(/^\[|\]$/g, ''), port);
     let open = false;
     up.on('connect', () => {
       open = true;
       socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
       if (head.length) up.write(head);
-      up.pipe(socket);
+      if (opt.tamper) {
+        // What a meddling proxy does to a page that is not encrypted (same length, different words).
+        up.on('data', (c) => socket.write(Buffer.from(c.toString('latin1').replace(/waddle/g, 'WADDLE'), 'latin1')));
+        up.on('end', () => socket.end());
+      } else up.pipe(socket);
       socket.pipe(up);
     });
     up.on('error', () => {
@@ -308,7 +335,10 @@ async function socks5Proxy(opt = {}) {
   };
 }
 
-/** SOCKS4 proxy. */
+/**
+ * SOCKS4 proxy. A name instead of an address (SOCKS4a) is logged with `byName: true`.
+ * Options: hosts {name: ip}, ports, refuse, no4a (addresses only, as plain SOCKS4 servers are).
+ */
 async function socks4Proxy(opt = {}) {
   const log = [];
   const server = net.createServer((c) => {
@@ -318,14 +348,22 @@ async function socks4Proxy(opt = {}) {
       buf = Buffer.concat([buf, d]);
       if (buf.length < 9) return;
       if (buf[0] !== 4) return c.destroy(); // an HTTP or SOCKS5 client knocking on a SOCKS4 door
-      const end = buf.indexOf(0, 8);
+      let end = buf.indexOf(0, 8);
       if (end < 0) return;
       const port = buf.readUInt16BE(2);
-      const host = [...buf.subarray(4, 8)].join('.');
+      let host = [...buf.subarray(4, 8)].join('.');
+      // SOCKS4a: the address 0.0.0.x means "the name follows the user id".
+      const named = buf[4] === 0 && buf[5] === 0 && buf[6] === 0 && buf[7] !== 0;
+      if (named) {
+        const stop = buf.indexOf(0, end + 1);
+        if (stop < 0) return;
+        host = buf.subarray(end + 1, stop).toString();
+        end = stop;
+      }
       const rest = buf.subarray(end + 1);
       c.off('data', onData);
-      log.push({ host, port });
-      if (opt.refuse) return c.end(Buffer.from([0, 0x5b, 0, 0, 0, 0, 0, 0]));
+      log.push(named ? { host, port, byName: true } : { host, port });
+      if (opt.refuse || (named && opt.no4a)) return c.end(Buffer.from([0, 0x5b, 0, 0, 0, 0, 0, 0]));
       const up = dial(opt, host, port);
       let open = false;
       up.on('connect', () => {
@@ -363,7 +401,8 @@ async function socks4Proxy(opt = {}) {
 /**
  * DNS-over-HTTPS server (RFC 8484 wire format, spoken over plain HTTP here).
  * `hosts` maps a name to a list of IPv4 addresses; unknown names get NXDOMAIN.
- * Options: delay (ms), fail (HTTP status), name.
+ * Options: delay (ms), fail (HTTP status), sizes (log the size of each question and whether it was padded),
+ * nopad (answers "format error" to a padded question), invent (an address it gives for names that do not exist).
  */
 async function doh(hosts = {}, opt = {}) {
   const log = [];
@@ -380,14 +419,22 @@ async function doh(hosts = {}, opt = {}) {
       }
       const name = labels.join('.');
       const type = q.readUInt16BE(off + 1);
-      log.push({ name, type });
+      const padded = q.readUInt16BE(10) === 1; // one additional record: the EDNS option that carries the padding
+      log.push(opt.sizes ? { name, type, size: q.length, padded } : { name, type });
       if (opt.delay) await sleep(opt.delay);
       if (opt.fail) {
         res.writeHead(opt.fail);
         return res.end();
       }
-      const known = Object.prototype.hasOwnProperty.call(hosts, name);
-      const ips = known && type === 1 ? hosts[name] : [];
+      if (opt.nopad && padded) {
+        // An old server that cannot read the option: "format error".
+        const h = Buffer.alloc(12);
+        h.writeUInt16BE(0x8181, 2);
+        res.writeHead(200, { 'Content-Type': 'application/dns-message' });
+        return res.end(h);
+      }
+      const known = opt.invent ? true : Object.prototype.hasOwnProperty.call(hosts, name);
+      const ips = !known || type !== 1 ? [] : opt.invent && !hosts[name] ? [opt.invent] : hosts[name];
       const header = Buffer.alloc(12);
       header.writeUInt16BE(0x8180 | (known ? 0 : 3), 2);
       header.writeUInt16BE(1, 4);
@@ -518,10 +565,28 @@ function judge(ip, cc) {
   return site({ '/trace': { headers: { 'Content-Type': 'text/plain' }, body: 'fl=1\nh=judge\nip=' + ip + '\nts=1\nloc=' + cc + '\n' } });
 }
 
+/** A known plain-HTTP page. `line` is how it is named in pool.canaries: a proxy that returns it intact may carry unencrypted pages. */
+async function canary() {
+  const s = await site({ '/ok.txt': { headers: { 'Content-Type': 'text/plain' }, body: 'waddle-canary\n' } });
+  return Object.assign(s, { line: s.url + '/ok.txt waddle-canary' });
+}
+
+/** A header echo: answers with the request headers it received, the way httpbin does. */
+async function echo() {
+  const s = await site({
+    '/headers': (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ headers: req.headers }));
+    },
+  });
+  return Object.assign(s, { href: s.url + '/headers' });
+}
+
 /**
  * A little internet for routing tests: a judge, three working proxies of the three kinds, each
- * in its own "country" (every exit sees its own copy of the judge), one dead address, and a
- * web page that lists them all the way public proxy lists do.
+ * in its own "country" (every exit sees its own copy of the judge), one dead address, a
+ * web page that lists them all the way public proxy lists do, and a canary page plus a header
+ * echo for vetting them.
  */
 async function world() {
   const main = await judge('198.51.100.1', 'ZZ');
@@ -545,7 +610,23 @@ async function world() {
   const dead = await closedPort();
   const text = `http://127.0.0.1:${h.port}\n127.0.0.1:${s5.port}\nsocks4://127.0.0.1:${s4.port}\n127.0.0.1:${dead}\n`;
   const list = await site({ '/list.txt': { headers: { 'Content-Type': 'text/plain' }, body: text } });
-  return { main, h, s5, s4, list, dead, all: [h, s5, s4], judgeUrl: main.url + '/trace', listUrl: list.url + '/list.txt' };
+  const can = await canary();
+  const ech = await echo();
+  return {
+    main,
+    h,
+    s5,
+    s4,
+    list,
+    dead,
+    all: [h, s5, s4],
+    judgeUrl: main.url + '/trace',
+    listUrl: list.url + '/list.txt',
+    canary: can.line,
+    canarySite: can,
+    echoUrl: ech.href,
+    echoSite: ech,
+  };
 }
 
 /** Median of a list of numbers. */
@@ -561,6 +642,8 @@ module.exports = {
   socks4Proxy,
   doh,
   judge,
+  canary,
+  echo,
   tarball,
   closedPort,
   world,
