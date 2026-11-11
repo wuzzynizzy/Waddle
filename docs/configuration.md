@@ -38,7 +38,7 @@ with `--use-system-ca` or set `NODE_EXTRA_CA_CERTS` if your network inspects TLS
 | `route.minutes`   | Keep for (min)                     | 1 to 1440                    | 10       | How long a per-site or timed exit is kept.                                                                 |
 | `route.countries` | Exit country                       | two-letter codes             | any      | Use only exits in these countries.                                                                         |
 | `route.protocols` | Protocols                          | `http`, `socks4`, `socks5`   | all      | Kinds of proxy to use.                                                                                     |
-| `route.hops`      | Hops                               | 1 to 5                       | 1        | Proxies in a row. Only the last one learns the destination.                                                |
+| `route.hops`      | Hops                               | 1 to 16                      | 1        | Proxies in a row. Only the last one learns the destination. Longer chains are slower and need more live proxies. |
 | `route.entry`     | Entry country                      | two-letter codes             | any      | Countries the first proxy of a chain may be in. Shown when there is more than one hop.                     |
 | `route.spread`    | A different country per hop        | on, off                      | on       | Put the hops of a chain in different countries when the pool allows.                                       |
 | `route.shorten`   | Shorter chain when proxies are few | on, off                      | on       | When a chain of the chosen length cannot be built, or keeps breaking, use a shorter one. Off: fail.        |
@@ -74,22 +74,31 @@ There is no rule that sends a site around the proxies.
 
 ## Proxies
 
-| Setting               | Panel              | Values            | Default          | Meaning                                                                                                            |
-| --------------------- | ------------------ | ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `pool.on`             | Harvest            | on, off           | on               | Download the lists on a schedule. Off: only proxies that are live, worked before or were added by hand are tested. |
-| `pool.adaptive`       | Adapt the schedule | on, off           | on               | Harvest sooner while short of proxies, later while full or while the network blocks them.                          |
-| `pool.discover`       | Find new sources   | on, off           | on               | Search GitHub and GitLab for new proxy lists after each harvest.                                                   |
-| `pool.discoverMax`    |                    | 0 to 50           | 10               | Most sources to keep from discovery.                                                                               |
-| `pool.target`         | Keep live          | 1 to 500          | 40               | Testing stops when this many proxies are live and resumes below it.                                                |
-| `pool.harvestMinutes` | Every (min)        | 5 to 1440         | 30               | How often lists are downloaded again.                                                                              |
-| `pool.recheckMinutes` | Recheck (min)      | 1 to 120          | 4                | How often live proxies are tested again.                                                                           |
-| `pool.checkTimeout`   | Test timeout (s)   | 1500 to 30000 ms  | 7000             | A proxy slower than this fails its test.                                                                           |
-| `pool.concurrency`    | Tests at once      | 1 to 400          | 80               | Tests running at once.                                                                                             |
-| `pool.perSource`      |                    | 100 to 200000     | 10000            | Most candidates taken from one source per harvest.                                                                 |
-| `pool.judge`          | Judge              | an address        | Cloudflare trace | Page each proxy must fetch to pass. It also tells Waddle the proxy's public address and country.                   |
-| `pool.echo`           | Header echo        | an address, empty | httpbin headers  | A plain-HTTP page that answers with the headers it received. Shows what a proxy adds. Empty: skip.                 |
-| `pool.canaries`       | Tamper checks      | one per line      | 3 pages          | Known plain-HTTP pages, as `<address> <expected text>`. See below.                                                 |
-| `pool.sources`        | Sources            | list              | 39               | Where proxies come from, below.                                                                                    |
+| Setting               | Panel              | Values                              | Standard default | Small default | Meaning                                                                                                                    |
+| --------------------- | ------------------ | ----------------------------------- | ---------------: | ------------: | -------------------------------------------------------------------------------------------------------------------------- |
+| `pool.on`             | Harvest            | on, off                             | on               | on            | Download lists on a schedule. Off: only live, previously working or hand-added proxies are tested.                         |
+| `pool.adaptive`       | Adapt the schedule | on, off                             | on               | on            | Harvest sooner while short of proxies, later while full or while the network blocks them.                                   |
+| `pool.discover`       | Find new sources   | on, off                             | on               | on            | Search GitHub and GitLab for new proxy lists after each harvest.                                                            |
+| `pool.discoverMax`    |                    | 0–500                               | 20               | 10            | Most automatically discovered sources to keep.                                                                             |
+| `pool.target`         | Keep live          | 1–2000 standard; 1–80 small         | 40               | 24            | Stop testing once this many proxies are live.                                                                               |
+| `pool.harvestMinutes` | Every (min)        | 5–1440                              | 30               | 30            | How often lists are downloaded again.                                                                                      |
+| `pool.recheckMinutes` | Recheck (min)      | 1–120                               | 4                | 4             | How often live proxies are tested again.                                                                                    |
+| `pool.checkTimeout`   | Test timeout (s)   | 1500–30000 ms                       | 7000             | 7000          | A proxy slower than this fails its test.                                                                                    |
+| `pool.concurrency`    | Tests at once      | 1–400 standard; 1–32 small          | 80               | 12            | Proxy checks running at once.                                                                                                |
+| `pool.perSource`      |                    | 100–200000 standard; 100–20000 small | 10000            | 2500          | Maximum candidates parsed from one source in a harvest.                                                                      |
+| `pool.judge`          | Judge              | an address                          | Cloudflare trace | same          | Page each proxy must fetch to pass. It also tells Waddle the proxy's public address and country.                            |
+| `pool.echo`           | Header echo        | an address, empty                   | httpbin headers  | same          | A plain-HTTP page that answers with the headers it received. Shows what a proxy adds. Empty: skip.                          |
+| `pool.canaries`       | Tamper checks      | one per line                        | 3 pages          | same          | Known plain-HTTP pages, as `<address> <expected text>`. See below.                                                         |
+| `pool.sources`        | Sources            | up to 2000 entries                  | 39               | 39            | Where proxies come from. The source list is capped to keep settings files small.                                            |
+
+`WADDLE_PROFILE=small` is enabled by the Docker image and the provided launchers. It lowers the
+pool defaults and runtime candidate/DNS caches for constrained hosts. The resolver cache is 1,500
+entries instead of 5,000; unchecked proxy candidates are capped at 25,000 instead of 150,000. These
+are runtime-memory bounds, not extra disk caches. The saved files contain settings and currently live
+proxies; raw list archives and unchecked candidates are not kept on disk. The 512 MB Compose cap and
+small-profile defaults are targets, not measured peak usage; actual memory depends on workload and a
+container that crosses the cap may be terminated. You can change most pool settings within the active
+profile's ceiling; use the standard profile only on a larger host.
 
 Settings without a panel entry can be changed in `data/config.json` or over the API.
 
@@ -132,13 +141,13 @@ Each source can be switched off or removed. Sources added by discovery carry a "
 | ------------------ | -------------------------------- | ---------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------- |
 | `dns.mode`         | Lookups                          | `auto`, `stack`, `exit`                        | `auto`                    | Who looks up the names of sites, below.                                                      |
 | `dns.strategy`     | Order                            | `fallback`, `race`, `rotate`, `split`, `check` | `fallback`                | How the resolvers are asked, below.                                                          |
-| `dns.parallel`     | Ask at once                      | 2 to 4                                         | 2                         | Resolvers asked together by Fastest and Cross-check.                                         |
+| `dns.parallel`     | Ask at once                      | 2–16                                           | 2                         | Resolvers asked together by Fastest and Cross-check.                                         |
 | `dns.pad`          | Pad questions                    | on, off                                        | on                        | Pad every question to a fixed size, so its length does not give the name away.               |
-| `dns.servers`      | Resolvers                        | DoH addresses                                  | Cloudflare, Quad9, Google | Your resolvers, in order.                                                                    |
+| `dns.servers`      | Resolvers                        | up to 64 DoH addresses                        | Cloudflare, Quad9, Google | Your resolvers, in order.                                                                    |
 | `dns.auto`         | Add tested public resolvers      | on, off                                        | on                        | Keep a tested list of public resolvers behind your own.                                      |
-| `dns.keep`         | Keep                             | 0 to 20                                        | 6                         | How many of those to use.                                                                    |
+| `dns.keep`         | Keep                             | 0–128                                          | 6                         | How many of those to use.                                                                    |
 | `dns.refreshHours` | Refresh (h)                      | 1 to 720                                       | 24                        | How often the public list is downloaded and tested again.                                    |
-| `dns.feeds`        |                                  | addresses                                      | 4 mirrors                 | Where the public list is downloaded from.                                                    |
+| `dns.feeds`        |                                  | up to 8 addresses                              | 4 mirrors                 | Where the public list is downloaded from.                                                    |
 | `dns.fallback`     | System resolver as a last resort | on, off                                        | on                        | For Waddle's own downloads only, when no resolver can be reached. Never for a site you open. |
 
 **Lookups**
@@ -300,6 +309,18 @@ are addresses for later, not offline copies.
 
 Waddle's single-origin design means a malicious proxied page may be able to reach browser-local data;
 see [Security](security.md#one-origin-for-everything) before using the library for sensitive records.
+
+## Backup and migration
+
+Open **Settings → General → Backup & migration** to export one versioned JSON backup or restore it
+on another Waddle. It includes server configuration and source lists, this browser's bookmarks,
+saved addresses, history, tabs, appearance preferences and theme. Restore replaces the destination
+server configuration and the local browser state after validating and sanitizing the imported data.
+The browser-side import rolls back if storage is full or the server refuses the restore.
+
+Session cookies, the in-memory request log, proxy pool contents, resolver cache and session identity
+are intentionally excluded. The file may contain private history and configuration, so keep it
+private. Backups are user-downloaded; Waddle does not write a copy to its data directory.
 
 ## Files
 

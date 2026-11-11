@@ -351,20 +351,65 @@ body.browsing #fit {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: clamp(32px, 12vh, 120px) 24px 56px;
+  padding: clamp(32px, 10vh, 104px) 24px 40px;
+  background:
+    radial-gradient(ellipse at 50% 20%, rgb(89 191 171 / 10%), transparent 37%),
+    radial-gradient(ellipse at 52% 58%, rgb(255 138 31 / 4%), transparent 55%), var(--bg);
 }
 body.browsing #landing {
   display: none;
 }
 .hero {
-  width: 132px;
-  height: 132px;
+  position: relative;
+  width: 148px;
+  height: 148px;
   flex: none;
+  display: grid;
+  place-items: center;
+}
+.hero::before,
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgb(74 171 157 / 15%);
+  border-radius: 50%;
+  animation: halo 7s ease-in-out infinite;
+}
+.hero::after {
+  inset: -8px;
+  border-color: rgb(242 123 43 / 10%);
+  animation-delay: -3.5s;
+  animation-direction: reverse;
 }
 .hero svg {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
+  filter: drop-shadow(0 9px 12px rgb(27 47 62 / 8%));
+  animation: home-float 4.8s ease-in-out infinite;
+}
+@keyframes halo {
+  0%,
+  100% {
+    transform: scale(0.97);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+@keyframes home-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(1deg);
+  }
 }
 .hero .wave {
   transform-origin: 148px 92px;
@@ -387,17 +432,111 @@ body.browsing #landing {
 }
 @media (prefers-reduced-motion: reduce) {
   .hero .wave,
+  .hero svg,
+  .hero::before,
+  .hero::after,
   body.loading #progress::after,
   .dot.busy {
     animation: none;
   }
 }
 #landing h1 {
-  font-size: 34px;
-  line-height: 1.1;
-  font-weight: 650;
-  letter-spacing: -0.03em;
-  margin: 20px 0 28px;
+  margin: 14px 0 5px;
+  font-size: 35px;
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+}
+#homePromise {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.005em;
+  text-align: center;
+}
+#checkpoint {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: min(100%, 360px);
+  margin: 0 0 18px;
+  padding: 10px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 94%, var(--accent));
+  text-align: left;
+  box-shadow: 0 4px 16px rgb(14 22 32 / 4%);
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+#checkpoint:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 8px 22px rgb(14 22 32 / 8%);
+}
+.checkpoint-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 13%, var(--card));
+  color: var(--accent);
+  font-size: 17px;
+  font-weight: 700;
+}
+.checkpoint-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+.checkpoint-copy b {
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+}
+.checkpoint-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.checkpoint-arrow {
+  flex: none;
+  color: var(--accent);
+  font-size: 17px;
+}
+#takeTour {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+#takeTour span:last-child {
+  color: var(--accent);
+  font-size: 14px;
+}
+#takeTour:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--card);
+  color: var(--text);
 }
 #start {
   width: 100%;
@@ -976,6 +1115,17 @@ textarea:focus,
 }
 
 @media (max-width: 640px) {
+  #landing {
+    padding: clamp(24px, 7vh, 64px) 18px 28px;
+  }
+  .hero {
+    width: 128px;
+    height: 128px;
+  }
+  #homePromise {
+    margin-bottom: 18px;
+    font-size: 12px;
+  }
   #bar {
     padding: 0 8px;
     gap: 2px;

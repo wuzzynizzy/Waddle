@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Meet Waddle: a self-hosted browser that routes every page through tested proxies, with chains, stacked DNS, and settings you can take with you.">
+  <meta name="theme-color" content="#f7f8f6">
+  <title>Waddle — take the scenic route</title>
+  <link rel="icon" href="/-/icon.svg">
+  <link rel="preload" href="/-/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/-/tour.css?v={{v}}">
+</head>
+<body>
+  <header class="tour-nav">
+    <a class="wordmark" href="/tour" aria-label="Waddle tour home">
+      <svg class="wordmark-mark" viewBox="14 6 180 188" aria-hidden="true">
+        <path d="M62 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6H70c-5 0-8-2-8-6zM102 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6h-20c-5 0-8-2-8-6z" fill="#f27b2b"/>
+        <path d="M50 96c-17 13-27 35-24 57 1 8 8 10 12 3 7-11 13-23 22-33zM146 90c19-5 35-20 40-40 2-8-5-12-10-6-9 10-22 18-36 23zM100 16c-35 0-57 29-57 70v34c0 36 23 58 57 58s57-22 57-58V86c0-41-22-70-57-70z" fill="#182739"/>
+        <path d="M100 60c-10-13-35-10-37 12-1 8 2 14 6 19-6 9-8 20-8 32 0 27 16 45 39 45s39-18 39-45c0-12-2-23-8-32 4-5 7-11 6-19-2-22-27-25-37-12z" fill="#fff"/>
+        <circle cx="81" cy="77" r="7.5" fill="#182739"/><circle cx="119" cy="77" r="7.5" fill="#182739"/>
+        <path d="M87 92c0-4 6-7 13-7s13 3 13 7c0 6-7 13-13 13s-13-7-13-13z" fill="#f27b2b"/>
+      </svg>
+      <span>Waddle</span><span class="wordmark-lab">LAB</span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="#why">Why Waddle</a>
+      <a href="#route">How it works</a>
+      <a href="#self-host">Self-host</a>
+      <a class="nav-github" href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="button button-small button-dark" href="/" aria-label="Open Waddle">Open Waddle <span aria-hidden="true">↗</span></a>
+    </nav>
+    <button class="menu-toggle" id="menuToggle" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Open menu"><span></span><span></span></button>
+  </header>
+  <nav class="mobile-nav" id="mobileNav" hidden aria-label="Mobile navigation">
+    <a href="#why">Why Waddle</a><a href="#route">How it works</a><a href="#self-host">Self-host</a>
+    <a href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noreferrer">GitHub ↗</a>
+    <a href="/">Open Waddle ↗</a>
+  </nav>
+
+  <main>
+    <section class="hero section-wrap" id="top">
+      <div class="hero-copy" data-reveal>
+        <p class="eyebrow"><span class="eyebrow-dot"></span> A little more room to roam</p>
+        <h1>Take the scenic route.<br><em>Keep the map.</em></h1>
+        <p class="hero-lede">Waddle is a tiny, self-hosted browser shell with a big idea: every page travels through a proxy you choose, never a direct connection.</p>
+        <div class="hero-actions">
+          <a class="button button-orange" href="/">Open Waddle <span aria-hidden="true">↗</span></a>
+          <a class="button button-light" href="#self-host">Bring your own server <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-note"><span class="check-mark">✓</span> Free to run · No build step · You keep the keys</div>
+      </div>
+
+      <div class="hero-scene" data-reveal data-delay="120">
+        <div class="scene-glow"></div>
+        <svg class="scene-art" viewBox="0 0 640 500" role="img" aria-labelledby="penguinTitle penguinDesc">
+          <title id="penguinTitle">Waddle's penguin explorer</title>
+          <desc id="penguinDesc">A hand-drawn penguin waves from an iceberg while a dotted route curves through the sky.</desc>
+          <defs>
+            <linearGradient id="ice" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#effbfc"/><stop offset="1" stop-color="#8dcfd7"/></linearGradient>
+            <linearGradient id="water" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b5e4e6" stop-opacity=".1"/><stop offset="1" stop-color="#79bdc8" stop-opacity=".38"/></linearGradient>
+            <linearGradient id="scarf" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffab59"/><stop offset="1" stop-color="#f2702c"/></linearGradient>
+            <filter id="softShadow" x="-.3" y="-.3" width="1.6" height="1.8"><feGaussianBlur stdDeviation="12"/></filter>
+          </defs>
+          <circle cx="325" cy="238" r="198" fill="#edf8f5"/>
+          <circle cx="325" cy="238" r="166" fill="none" stroke="#d8eeeb" stroke-width="1.5" stroke-dasharray="3 9"/>
+          <path d="M84 264c81-105 171-142 264-111 61 20 93 75 175 44" fill="none" stroke="#64c5c5" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 10" class="route-trail"/>
+          <path d="M102 333c71-33 131-35 195-8 61 26 121 19 195-18 33-16 67-19 102-8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".86"/>
+          <g class="orbit-node"><circle cx="84" cy="263" r="10" fill="#fff"/><circle cx="84" cy="263" r="5" fill="#f27b2b"/></g>
+          <g class="orbit-node node-two"><circle cx="348" cy="153" r="10" fill="#fff"/><circle cx="348" cy="153" r="5" fill="#59bfc0"/></g>
+          <g class="orbit-node node-three"><circle cx="524" cy="197" r="10" fill="#fff"/><circle cx="524" cy="197" r="5" fill="#f27b2b"/></g>
+          <g fill="#fff" class="snow-stars"><path d="M160 113v14m-7-7h14"/><path d="M506 311v12m-6-6h12"/><path d="M224 213v9m-4.5-4.5h9"/><circle cx="458" cy="119" r="3"/><circle cx="119" cy="367" r="3"/></g>
+          <ellipse cx="330" cy="408" rx="184" ry="25" fill="#537f8c" opacity=".16" filter="url(#softShadow)"/>
+          <path d="m155 360 44-59 89 14 67-35 103 40 38 58-75 32-207-9z" fill="url(#ice)" stroke="#8fcbd1" stroke-width="2" stroke-linejoin="round"/>
+          <path d="m155 360 91 25 37-70-84-14z" fill="#c5ebec"/><path d="m246 385 91-7 18-88-67 25z" fill="#a7dce0"/>
+          <path d="m337 378 84 11 75-32-45-37-96-12z" fill="#d9f2f0"/>
+          <path d="M196 369c30 8 54 9 77 2m123 17 44-7" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+          <ellipse cx="327" cy="346" rx="69" ry="13" fill="#335461" opacity=".18"/>
+          <g class="penguin-float">
+            <g class="penguin">
+              <path d="M273 237c-31 23-46 55-40 92 2 11 13 13 19 3 9-15 19-33 33-47z" fill="#1b2a3b"/>
+              <path class="wing-wave" d="M374 217c32-9 52-31 57-60 2-11-8-15-15-7-11 13-27 24-46 31z" fill="#1b2a3b"/>
+              <path d="M328 119c-54 0-87 41-87 101v73c0 54 35 86 87 86s87-32 87-86v-73c0-60-33-101-87-101z" fill="#182638"/>
+              <path d="M328 183c-15-18-51-14-55 16-1 12 3 20 10 28-9 14-12 30-12 48 0 40 24 66 57 66s57-26 57-66c0-18-3-34-12-48 7-8 11-16 10-28-4-30-40-34-55-16z" fill="#fff"/>
+              <path d="M276 268c-12 11-26 16-43 17 4 20 17 34 36 41l21-46z" fill="#f27b2b"/>
+              <circle cx="300" cy="207" r="8" fill="#172436"/><circle cx="356" cy="207" r="8" fill="#172436"/>
+              <circle cx="302" cy="204" r="2.5" fill="#fff"/><circle cx="358" cy="204" r="2.5" fill="#fff"/>
+              <path d="M312 225c0-5 7-9 16-9s16 4 16 9c0 8-9 17-16 17s-16-9-16-17z" fill="#f27b2b"/>
+              <path d="M316 229c4 2 8 3 12 3s8-1 12-3" fill="none" stroke="#d65d21" stroke-width="2" stroke-linecap="round"/>
+              <ellipse cx="283" cy="235" rx="7" ry="4" fill="#ffd1ad"/><ellipse cx="373" cy="235" rx="7" ry="4" fill="#ffd1ad"/>
+              <path d="M294 357c-3 10-1 17 9 18l23-1c4-1 5-5 1-8l-19-15zM344 356c3 10 1 17-9 18l-23-1c-4-1-5-5-1-8l19-15z" fill="#f27b2b"/>
+              <path d="M270 170c16-26 43-40 74-38" fill="none" stroke="#384a5e" stroke-width="5" stroke-linecap="round" opacity=".6"/>
+              <path d="M275 262c16 11 33 16 53 16s37-5 53-16" fill="none" stroke="url(#scarf)" stroke-width="14" stroke-linecap="round"/>
+              <path d="M365 272v48c0 5 7 7 10 3l8-9 8 8c4 4 10 1 10-4v-55" fill="url(#scarf)"/>
+              <path d="M374 316v13m10-14v13m10-14v13" stroke="#e8662c" stroke-width="3" stroke-linecap="round"/>
+            </g>
+          </g>
+          <g class="tiny-label" transform="translate(66 175)"><rect width="80" height="25" rx="12.5" fill="#fff"/><circle cx="13" cy="12.5" r="3.5" fill="#f27b2b"/><text x="24" y="16.5">YOU</text></g>
+          <g class="tiny-label" transform="translate(469 150)"><rect width="105" height="25" rx="12.5" fill="#fff"/><circle cx="13" cy="12.5" r="3.5" fill="#59bfc0"/><text x="24" y="16.5">OUT THERE</text></g>
+        </svg>
+        <div class="scene-caption"><span class="caption-sparkle">✳</span><span>Curious by nature.<br><b>Careful by design.</b></span></div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-label="Waddle at a glance">
+      <div><span class="trust-icon">↗</span><b>Proxy-only routes</b><small>never a direct fallback</small></div>
+      <div><span class="trust-icon">⛓</span><b>Stack your path</b><small>up to 16 proxy hops</small></div>
+      <div><span class="trust-icon">◎</span><b>Local-first library</b><small>your browser keeps it</small></div>
+      <div><span class="trust-icon">⌘</span><b>Open source</b><small>inspect every line</small></div>
+    </section>
+
+    <section class="section section-why" id="why">
+      <div class="section-heading" data-reveal>
+        <p class="eyebrow">Meet your new web sidekick</p>
+        <h2>More than a proxy.<br><em>A browser with a route.</em></h2>
+        <p>Waddle brings the useful bits together: a self-feeding proxy pool, an address bar that feels familiar, and controls that stay yours.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card feature-orange" data-reveal>
+          <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5M7 6v12"/></svg></div>
+          <h3>Only the route you chose</h3><p>No direct mode hiding in a setting. Waddle refuses a page if it cannot reach it through a working proxy.</p>
+          <span class="feature-foot">DIRECT FALLBACK <b>OFF</b></span>
+        </article>
+        <article class="feature-card feature-blue" data-reveal data-delay="80">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="12" cy="6" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="m7.2 10.8 2.6-3.6m4.4 0 2.6 3.6m-9.6 2.4 7.6 0"/></svg></div>
+          <h3>Routes that stack</h3><p>Chain up to 16 proxies. Only the exit connects to the site; Waddle automatically harvests sources, tests candidates, and rechecks working exits.</p>
+          <span class="feature-foot">HTTP · SOCKS4 · SOCKS5</span>
+        </article>
+        <article class="feature-card feature-teal" data-reveal data-delay="160">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg></div>
+          <h3>DNS, your way</h3><p>Stack encrypted DNS-over-HTTPS resolvers, then fall back, race, rotate, split or cross-check. Or let the exit look up names.</p>
+          <span class="feature-foot">UP TO 64 MANUAL RESOLVERS</span>
+        </article>
+        <article class="feature-card feature-lilac" data-reveal data-delay="240">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4"/><circle cx="12" cy="12" r="8.5"/></svg></div>
+          <h3>Your browser, your shelf</h3><p>Bookmarks, saved pages, history, tabs and suggestions live in your browser. Export a backup and take the whole shelf with you.</p>
+          <span class="feature-foot">PRIVATE TO YOUR BROWSER</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section route-section" id="route">
+      <div class="route-copy" data-reveal>
+        <p class="eyebrow">See the path</p>
+        <h2>One hop, or a whole little parade.</h2>
+        <p>Add relay hops to the demo. Waddle builds the chain from the entry to the exit, reuses healthy connections, and shortens the route when you allow it and the pool is small.</p>
+        <div class="route-controls" aria-label="Proxy chain demo">
+          <button id="hopMinus" type="button" class="round-control" aria-label="Remove a proxy hop" disabled>−</button>
+          <output id="hopCount" aria-live="polite">1 hop</output>
+          <button id="hopPlus" type="button" class="round-control" aria-label="Add a proxy hop">+</button>
+          <span class="control-note">Try a chain up to 16 hops</span>
+        </div>
+        <div class="route-facts"><div><b>Entry</b><span>sees the next hop</span></div><div><b>Exit</b><span>sees the destination</span></div></div>
+      </div>
+      <div class="route-board" data-reveal data-delay="120">
+        <div class="board-top"><span class="live-dot"></span><b>Waddle route preview</b><span class="board-lock">PRIVATE PATH</span></div>
+        <div id="routeChain" class="route-chain" role="img" aria-label="Browser to one proxy exit to a website"></div>
+        <div class="board-bottom"><span class="board-penguin">✳</span><span><b>Every connection takes the same route.</b><small>No proxy available? The page waits. It never slips out directly.</small></span></div>
+      </div>
+    </section>
+
+    <section class="section stack-section" id="stack">
+      <div class="section-heading section-heading-row" data-reveal>
+        <div><p class="eyebrow">More knobs. Still yours.</p><h2>Stack carefully.<br><em>Keep it changeable.</em></h2></div>
+        <p>Stack up to 64 manual DoH resolvers and 16 proxy hops. Server config, browser-local data, and source lists are portable; choose the pool profile and limits that fit your machine.</p>
+      </div>
+      <div class="stack-demo" data-reveal>
+        <div class="resolver-panel">
+          <div class="resolver-panel-head"><div><span class="tiny-eyebrow">DNS RESOLVER STACK</span><h3>Ask one. Or compare.</h3></div><span class="stack-count" id="resolverCount">3 / 64 in stack</span></div>
+          <div class="resolver-list" id="resolverList" aria-live="polite"></div>
+          <div class="resolver-tools">
+            <div class="strategy-pills" role="group" aria-label="Resolver strategy">
+              <button class="strategy on" type="button" data-strategy="fallback" aria-pressed="true">In order</button>
+              <button class="strategy" type="button" data-strategy="race" aria-pressed="false">Fastest</button>
+              <button class="strategy" type="button" data-strategy="check" aria-pressed="false">Cross-check</button>
+            </div>
+            <button class="add-resolver" id="addResolver" type="button"><span>＋</span> Add a resolver</button>
+          </div>
+          <p class="demo-note" id="strategyNote" aria-live="polite">If one resolver is slow or unavailable, the next can answer through the same proxy route.</p>
+        </div>
+        <aside class="stack-aside">
+          <div class="mini-penguin" aria-hidden="true">
+            <svg viewBox="0 0 120 140"><ellipse cx="60" cy="127" rx="31" ry="6" fill="#234454" opacity=".12"/><path d="M33 55c-12 9-18 24-16 39 1 5 6 6 9 2l13-20z" fill="#1b2a3b"/><path d="M60 13c-24 0-37 19-37 48v25c0 24 15 39 37 39s37-15 37-39V61c0-29-13-48-37-48z" fill="#182638"/><path d="M60 42c-7-9-22-7-24 8-.5 5 1 9 4 12-4 7-5 14-5 23 0 19 10 30 25 30s25-11 25-30c0-9-1-16-5-23 3-3 4.5-7 4-12-2-15-17-17-24-8z" fill="#fff"/><circle cx="48" cy="55" r="4" fill="#182638"/><circle cx="72" cy="55" r="4" fill="#182638"/><path d="M52 65c0-3 4-4.5 8-4.5s8 1.5 8 4.5-5 8-8 8-8-5-8-8z" fill="#f27b2b"/><path d="M34 83c8 6 17 9 26 9s18-3 26-9" fill="none" stroke="#f27b2b" stroke-width="7" stroke-linecap="round"/><path d="M45 122c-2 5 0 8 5 8h10l-5-11m17 3c2 5 0 8-5 8H57l5-11" fill="#f27b2b"/></svg>
+          </div>
+          <p class="eyebrow">Small-server friendly</p><h3>Keep the penguin nimble.</h3>
+          <p>The <code>small</code> profile reduces pool work and cache sizes for constrained hosts. The sample Compose file can cap RAM at 512&nbsp;MB, but peak use has not been benchmarked and depends on workload. Page rendering, address suggestions and your library stay in your browser.</p>
+          <a href="https://github.com/wuzzynizzy/Waddle/blob/main/docs/configuration.md" target="_blank" rel="noreferrer">See the resource knobs <span aria-hidden="true">↗</span></a>
+        </aside>
+      </div>
+      <p class="fineprint">More hops and resolver checks can add latency and failure points. Practical ceilings and the small-server profile limit background work, but actual resource use still depends on your host and workload.</p>
+    </section>
+
+    <section class="migration-band" data-reveal>
+      <div class="migration-mark" aria-hidden="true">↗</div>
+      <div><p class="eyebrow">PERFECTED CHECKPOINT · PORTABLE BACKUP</p><h2>Everything moves. Nothing gets stuck.</h2><p>Export settings, sources, local bookmarks, reading list, history, preferences and tabs to one versioned backup. Import it on another Waddle to pick up where you left off.</p></div>
+      <a class="button button-light" href="/" title="Open Waddle settings">Open backup settings <span aria-hidden="true">↗</span></a>
+    </section>
+
+    <section class="section self-host-section" id="self-host">
+      <div class="self-host-copy" data-reveal>
+        <p class="eyebrow">A home for your own Waddle</p>
+        <h2>One command to get going.<br><em>Yours to run.</em></h2>
+        <p>Node 20+ is all you need. No package install, no build pipeline and no mystery binary. Choose a platform and the installer downloads the source from this GitHub repository.</p>
+        <div class="self-host-points"><span><b>01</b> install</span><span><b>02</b> run locally</span><span><b>03</b> set a password before sharing</span></div>
+      </div>
+      <div class="install-card" data-reveal data-delay="120">
+        <div class="install-head"><span class="terminal-dots"><i></i><i></i><i></i></span><span>QUICK INSTALL</span><a href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noreferrer">SOURCE ↗</a></div>
+        <div class="platform-tabs" role="tablist" aria-label="Choose installer">
+          <button class="platform-tab on" id="tabUnix" role="tab" aria-selected="true" aria-controls="unixCode" type="button" data-platform="unix">macOS / Linux</button>
+          <button class="platform-tab" id="tabWindows" role="tab" aria-selected="false" aria-controls="windowsCode" type="button" data-platform="windows">Windows</button>
+        </div>
+        <div class="install-code" id="unixCode" role="tabpanel" aria-labelledby="tabUnix">
+          <div class="code-line"><span class="prompt">$</span><code>curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh</code><button class="copy-code" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh" aria-label="Copy macOS and Linux GitHub install command">Copy</button></div>
+          <p>Alternative, only after verifying the Waddle domain is live and trusted:</p>
+          <div class="code-line secondary"><span class="prompt">$</span><code>curl -fsSL https://waddle.wisp.uno/install.sh | sh</code><button class="copy-code" type="button" data-copy="curl -fsSL https://waddle.wisp.uno/install.sh | sh" aria-label="Copy verified Waddle-domain install command">Copy</button></div>
+          <a class="script-download" href="/install.sh" download="install.sh">Download install.sh <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="install-code" id="windowsCode" role="tabpanel" aria-labelledby="tabWindows" hidden>
+          <div class="code-line"><span class="prompt">PS</span><code>irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex</code><button class="copy-code" type="button" data-copy="irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex" aria-label="Copy Windows GitHub install command">Copy</button></div>
+          <p>Alternative, only after verifying the Waddle domain is live and trusted:</p>
+          <div class="code-line secondary"><span class="prompt">PS</span><code>irm https://waddle.wisp.uno/install.ps1 | iex</code><button class="copy-code" type="button" data-copy="irm https://waddle.wisp.uno/install.ps1 | iex" aria-label="Copy verified Waddle-domain install command">Copy</button></div>
+          <a class="script-download" href="/install.ps1" download="install.ps1">Download install.ps1 <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="install-foot"><span>✓ Node.js 20 or newer</span><span>↗ Opens at localhost:8080</span></div>
+      </div>
+      <div class="deploy-note" data-reveal>
+        <div class="deploy-icon">⌂</div>
+        <div><b>Putting it on a small VPS?</b><p>Docker Compose includes a 512&nbsp;MB memory cap and a persistent data volume. Add a strong password and TLS reverse proxy before making it public.</p></div>
+        <a href="https://github.com/wuzzynizzy/Waddle/blob/main/compose.yaml" target="_blank" rel="noreferrer">View compose file ↗</a>
+      </div>
+    </section>
+
+    <section class="closing-section">
+      <div class="closing-art" aria-hidden="true">
+        <svg viewBox="0 0 180 150"><path d="M13 112c25-20 49-17 66-1 20 19 46 18 88-13" fill="none" stroke="#65bfc0" stroke-width="2" stroke-dasharray="3 7"/><circle cx="14" cy="112" r="5" fill="#f27b2b"/><circle cx="167" cy="98" r="5" fill="#f27b2b"/><ellipse cx="90" cy="135" rx="37" ry="7" fill="#213243" opacity=".12"/><path d="M52 67c-13 8-19 23-17 37 1 6 7 6 10 1l14-20z" fill="#172638"/><path d="M91 17c-26 0-41 21-41 53v31c0 28 16 44 41 44s41-16 41-44V70c0-32-15-53-41-53z" fill="#172638"/><path d="M91 50c-8-10-25-8-27 9-1 6 1 10 5 14-5 8-6 17-6 27 0 22 11 35 28 35s28-13 28-35c0-10-1-19-6-27 4-4 6-8 5-14-2-17-19-19-27-9z" fill="#fff"/><circle cx="78" cy="64" r="4" fill="#172638"/><circle cx="104" cy="64" r="4" fill="#172638"/><path d="M82 76c0-3 4-5 9-5s9 2 9 5-5 9-9 9-9-6-9-9z" fill="#f27b2b"/><path d="M61 95c9 7 19 10 30 10s21-3 30-10" fill="none" stroke="#f27b2b" stroke-width="8" stroke-linecap="round"/></svg>
+      </div>
+      <div class="closing-copy"><p class="eyebrow">See you out there</p><h2>Curiosity looks good<br>on you.</h2><p>Follow the project, take the tour, or open your own Waddle.</p></div>
+      <div class="closing-actions"><a class="button button-orange" href="/">Open Waddle <span aria-hidden="true">↗</span></a><a class="button button-light" href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noreferrer">Star on GitHub <span aria-hidden="true">↗</span></a></div>
+    </section>
+  </main>
+
+  <footer class="tour-footer"><a class="wordmark footer-wordmark" href="/tour"><span class="footer-mini">✳</span><span>Waddle</span></a><span>Open source, self-hosted, and a little more thoughtful.</span><div><a href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noreferrer">GitHub</a><a href="https://github.com/wuzzynizzy/Waddle/blob/main/docs/security.md" target="_blank" rel="noreferrer">Security</a><a href="https://github.com/wuzzynizzy/Waddle/blob/main/docs/testing.md" target="_blank" rel="noreferrer">Tests</a><a href="/">Open app</a></div></footer>
+  <div class="toast" id="tourToast" role="status" aria-live="polite" hidden></div>
+  <script src="/-/tour.js?v={{v}}" defer></script>
+</body>
+</html>

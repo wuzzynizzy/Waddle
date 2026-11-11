@@ -1302,6 +1302,9 @@
         value: get(path) / scale,
         'aria-label': label,
         'data-k': path,
+        min: o && o.min != null ? o.min : undefined,
+        max: o && o.max != null ? o.max : undefined,
+        step: o && o.step != null ? o.step : undefined,
         onchange: function (e) {
           save(path, Number(e.target.value) * scale);
         },
@@ -1761,13 +1764,11 @@
           pick('Exit country', 'route.countries', countries(), 'Any'),
           multi('Protocols', 'route.protocols', ['http', 'socks4', 'socks5']),
           h2('Chain'),
-          seg(
-            'Hops',
-            'route.hops',
-            Array.apply(null, Array(state.options.maxHops)).map(function (_, i) {
-              return i + 1;
-            })
-          ),
+          num('Proxy hops', 'route.hops', 1, {
+            min: 1,
+            max: state.options.maxHops,
+            hint: 'Up to ' + state.options.maxHops + ' chained exits; longer routes are slower and less reliable.',
+          }),
           r.hops > 1 ? pick('Entry country', 'route.entry', countries(), 'Any') : null,
           r.hops > 1 ? tog('A different country per hop', 'route.spread') : null,
           r.hops > 1 ? tog('Shorter chain when proxies are few', 'route.shorten') : null,
@@ -1977,11 +1978,18 @@
           tog('Harvest', 'pool.on'),
           tog('Adapt the schedule', 'pool.adaptive'),
           tog('Find new sources', 'pool.discover'),
-          num('Keep live', 'pool.target'),
-          num('Every (min)', 'pool.harvestMinutes'),
-          num('Recheck (min)', 'pool.recheckMinutes'),
-          num('Test timeout (s)', 'pool.checkTimeout', 1000),
-          num('Tests at once', 'pool.concurrency'),
+          num('Keep live', 'pool.target', 1, {
+            min: 1,
+            max: state.options.profile === 'small' ? 80 : 2000,
+            hint: 'Pool size budget for the ' + state.options.profile + ' server profile.',
+          }),
+          num('Every (min)', 'pool.harvestMinutes', 1, { min: 5, max: 1440 }),
+          num('Recheck (min)', 'pool.recheckMinutes', 1, { min: 1, max: 120 }),
+          num('Test timeout (s)', 'pool.checkTimeout', 1000, { min: 1.5, max: 30, step: 0.5 }),
+          num('Tests at once', 'pool.concurrency', 1, {
+            min: 1,
+            max: state.options.profile === 'small' ? 32 : 400,
+          }),
           h2('Tests'),
           txt('Judge', 'pool.judge', '', { col: true }),
           txt('Header echo', 'pool.echo', 'off', { col: true }),
@@ -2022,7 +2030,7 @@
               ['split', 'Split by name'],
               ['check', 'Cross-check'],
             ]),
-            c.dns.strategy === 'race' || c.dns.strategy === 'check' ? num('Ask at once', 'dns.parallel') : null,
+            c.dns.strategy === 'race' || c.dns.strategy === 'check' ? num('Ask at once', 'dns.parallel', 1, { min: 2, max: 16 }) : null,
             tog('Pad questions', 'dns.pad')
           );
         r.push(h2('Resolvers'));
@@ -2132,7 +2140,7 @@
         r.push(
           h2('Public list'),
           tog('Add tested public resolvers', 'dns.auto', { hint: 'No logs, no filtering, no client subnet. Tested through a proxy.' }),
-          c.dns.auto ? num('Keep', 'dns.keep') : null,
+          c.dns.auto ? num('Keep', 'dns.keep', 1, { min: 0, max: 128 }) : null,
           c.dns.auto ? num('Refresh (h)', 'dns.refreshHours') : null
         );
         if (c.dns.auto)
@@ -2526,6 +2534,16 @@
           return x.url === ui.search;
         })[0];
         var custom = !preset || extra.searchCustom;
+        var backupInput = el('input', {
+          type: 'file',
+          accept: '.json,application/json',
+          class: 'visually-hidden',
+          'aria-label': 'Restore a Waddle backup',
+          onchange: function (e) {
+            importMigrationBackup(e.target.files && e.target.files[0]);
+            e.target.value = '';
+          },
+        });
         var r = [
           seg('Theme', 'ui.theme', [
             ['auto', 'Auto'],
@@ -2607,6 +2625,18 @@
               renderHomePicks();
             }),
           ]),
+          h2('Backup & migration'),
+          el('div', {
+            class: 'hint',
+            text: 'One versioned file moves server settings and sources plus this browser’s bookmarks, saved pages, history, tabs and appearance. Session cookies, request logs and the live proxy cache are not included. Treat the backup as private.',
+          }),
+          el('div', { class: 'btns' }, [
+            btn('Export full backup', exportMigrationBackup),
+            btn('Restore backup', function () {
+              backupInput.click();
+            }),
+          ]),
+          backupInput,
           h2('Keyboard shortcuts'),
           el('div', {
             class: 'hint',
@@ -2796,6 +2826,129 @@
       })
       .catch(function () {
         toast('Could not read that bookmarks file');
+      });
+  }
+  function portableTabs(value) {
+    if (!Array.isArray(value)) return [newTabRecord()];
+    var tabs = value.slice(0, 16).map(function (item) {
+      item = item && typeof item === 'object' ? item : {};
+      var history = (Array.isArray(item.history) ? item.history : [])
+        .slice(-100)
+        .map(function (entry) {
+          var url = local.cleanUrl(entry && entry.url);
+          return url ? { url: url, title: String((entry && entry.title) || url).slice(0, 200), at: Number(entry.at) || Date.now() } : null;
+        })
+        .filter(Boolean);
+      var url = local.cleanUrl(item.url || '');
+      var index = Number(item.index);
+      return {
+        id: String(item.id || makeId()).slice(0, 80),
+        url: url,
+        title: String(item.title || (url ? url.replace(/^https?:\/\//, '') : 'New tab')).slice(0, 200),
+        history: history,
+        index: Number.isFinite(index) ? Math.max(-1, Math.min(history.length - 1, index)) : -1,
+        route: null,
+      };
+    });
+    return tabs.length ? tabs : [newTabRecord()];
+  }
+  function exportMigrationBackup() {
+    return api('backup')
+      .then(function (backup) {
+        backup.browser = local.exportState();
+        backup.tabs = browserTabs.map(function (item) {
+          return {
+            id: item.id,
+            url: item.url,
+            title: item.title,
+            history: item.history,
+            index: item.index,
+          };
+        });
+        backup.activeTabId = activeBrowserTabId;
+        var date = new Date().toISOString().slice(0, 10);
+        downloadLocal('waddle-backup-' + date + '.json', JSON.stringify(backup, null, 2), 'application/json');
+        toast('Full backup downloaded — keep it somewhere private');
+      })
+      .catch(function () {
+        toast('Could not create a backup');
+      });
+  }
+  function importMigrationBackup(file) {
+    if (!file || !local) return;
+    file
+      .text()
+      .then(function (text) {
+        var incoming;
+        try {
+          incoming = JSON.parse(text);
+        } catch (error) {
+          throw new Error('That file is not valid JSON');
+        }
+        if (
+          !incoming ||
+          incoming.format !== 'waddle-backup' ||
+          incoming.version !== 1 ||
+          !incoming.config ||
+          typeof incoming.config !== 'object' ||
+          Array.isArray(incoming.config)
+        )
+          throw new Error('This is not a supported Waddle backup');
+        if (
+          !window.confirm(
+            'Restore this Waddle backup? It replaces server settings and this browser’s library, tabs and appearance preferences. The file can include private browsing history.'
+          )
+        )
+          return;
+        var beforeLocal = local.exportState();
+        var beforeTabs = localStorage.getItem(TAB_KEY);
+        var beforeActive = localStorage.getItem(ACTIVE_TAB_KEY);
+        var restoreTabs = Array.isArray(incoming.tabs);
+        var tabs = restoreTabs ? portableTabs(incoming.tabs) : null;
+        var nextActive = tabs
+          ? tabs.some(function (item) {
+              return item.id === incoming.activeTabId;
+            })
+            ? incoming.activeTabId
+            : tabs[0].id
+          : activeBrowserTabId;
+        var rollback = function () {
+          if (incoming.browser) local.importState(beforeLocal);
+          try {
+            if (beforeTabs == null) localStorage.removeItem(TAB_KEY);
+            else localStorage.setItem(TAB_KEY, beforeTabs);
+            if (beforeActive == null) localStorage.removeItem(ACTIVE_TAB_KEY);
+            else localStorage.setItem(ACTIVE_TAB_KEY, beforeActive);
+          } catch (error) {
+            /* best effort rollback */
+          }
+        };
+        try {
+          if (incoming.browser && !local.importState(incoming.browser)) throw new Error('Browser storage is full; nothing was changed.');
+          if (tabs) {
+            localStorage.setItem(TAB_KEY, JSON.stringify(tabs));
+            localStorage.setItem(ACTIVE_TAB_KEY, nextActive);
+          }
+        } catch (error) {
+          rollback();
+          throw error;
+        }
+        api('backup', { format: incoming.format, version: incoming.version, config: incoming.config })
+          .then(function (s) {
+            activeBrowserTabId = nextActive;
+            apply(s, true);
+            toast('Backup restored — reopening Waddle…');
+            setTimeout(function () {
+              location.reload();
+            }, 450);
+          })
+          .catch(function () {
+            rollback();
+            toast('Restore failed — your existing browser data was kept');
+          });
+      })
+      .catch(function (error) {
+        toast(error && error.message ? error.message : 'Could not read that backup');
       });
   }
   function librarySearchInput(label) {
@@ -3301,6 +3454,9 @@
     var d = $('#drawer');
     if (d.hidden) open();
     else d.hidden = true;
+  });
+  $('#checkpoint').addEventListener('click', function () {
+    open('general');
   });
   $('#route').addEventListener('click', function () {
     open(document.body.classList.contains('browsing') ? 'route' : 'proxies');

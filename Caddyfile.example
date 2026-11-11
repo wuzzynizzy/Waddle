@@ -1,0 +1,7 @@
+# Example only: configure DNS for waddle.wisp.uno and verify it resolves to this host before use.
+# DNS and deployment for this hostname have not been verified from this repository.
+# Keep compose.yaml bound to 127.0.0.1; Caddy terminates HTTPS and forwards locally.
+waddle.wisp.uno {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8080
+}

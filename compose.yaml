@@ -1,0 +1,35 @@
+services:
+  waddle:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    mem_limit: 512m
+    memswap_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    ports:
+      # Keep Waddle private on the host; put Caddy, nginx or another TLS proxy in front.
+      - '127.0.0.1:8080:8080'
+    environment:
+      WADDLE_PASSWORD: ${WADDLE_PASSWORD:?Set a strong WADDLE_PASSWORD in .env before starting}
+      WADDLE_USER: ${WADDLE_USER:-waddle}
+    volumes:
+      - waddle-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:8080/-/ping',r=>process.exit(r.statusCode===204?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  waddle-data:

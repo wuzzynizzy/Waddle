@@ -33,11 +33,18 @@
   <section id="landing">
     <div class="hero"><svg viewBox="0 0 200 200" role="img" aria-label="A penguin waving"><ellipse cx="100" cy="187" rx="56" ry="5" fill="currentColor" opacity=".07"/><path d="M62 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6H70c-5 0-8-2-8-6zM102 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6h-20c-5 0-8-2-8-6z" fill="#ff8a1f"/><path class="pen-body" d="M50 96c-17 13-27 35-24 57 1 8 8 10 12 3 7-11 13-23 22-33z"/><path class="pen-body wave" d="M146 90c19-5 35-20 40-40 2-8-5-12-10-6-9 10-22 18-36 23z"/><path class="pen-body" d="M100 16c-35 0-57 29-57 70v34c0 36 23 58 57 58s57-22 57-58V86c0-41-22-70-57-70z"/><path d="M100 60c-10-13-35-10-37 12-1 8 2 14 6 19-6 9-8 20-8 32 0 27 16 45 39 45s39-18 39-45c0-12-2-23-8-32 4-5 7-11 6-19-2-22-27-25-37-12z" fill="#fff"/><circle class="pen-body" cx="81" cy="77" r="7.500"/><circle class="pen-body" cx="119" cy="77" r="7.500"/><circle cx="83.600" cy="74.400" r="2.400" fill="#fff"/><circle cx="121.600" cy="74.400" r="2.400" fill="#fff"/><path d="M87 92c0-4 6-7 13-7s13 3 13 7c0 6-7 13-13 13s-13-7-13-13z" fill="#ff8a1f"/><path d="M90 93c3 2 6 3 10 3s7-1 10-3" fill="none" stroke="#d96a0b" stroke-width="2" stroke-linecap="round"/><ellipse cx="68" cy="93" rx="5.500" ry="3.200" fill="#ffd2b0"/><ellipse cx="132" cy="93" rx="5.500" ry="3.200" fill="#ffd2b0"/></svg></div>
     <h1>Waddle</h1>
+    <p id="homePromise">Take the scenic route. Keep the map.</p>
+    <button id="checkpoint" class="checkpoint" type="button" aria-label="Open the PERFECTED checkpoint and backup settings">
+      <span class="checkpoint-mark" aria-hidden="true">✓</span>
+      <span class="checkpoint-copy"><b>PERFECTED</b><small>Portable checkpoint · settings + browser data</small></span>
+      <span class="checkpoint-arrow" aria-hidden="true">↗</span>
+    </button>
     <div id="searchBox"><form id="start"><input id="q" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter address" aria-label="Search or enter address" autofocus></form>
     <div id="suggestions" role="listbox" aria-label="Suggestions" hidden></div></div>
     <div id="links"></div>
     <section id="homePicks" hidden><h2>Pick up where you left off</h2><div id="homePickList"></div></section>
     <div id="chips"></div>
+    <a id="takeTour" href="/tour"><span>Meet Waddle</span><span aria-hidden="true">↗</span></a>
   </section>
   <div id="fit"><iframe id="frame" title="Page" allow="fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"></iframe></div>
 </main>
