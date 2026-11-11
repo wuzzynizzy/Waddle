@@ -272,7 +272,6 @@
     persistBrowserTabs();
     renderBrowserTabs();
     updateBookmarkButton();
-    renderHomePicks();
   }
   function updateCurrentTitle(title) {
     var t = activeBrowserTab();
@@ -285,7 +284,6 @@
       if (suppressNextLocalVisit) suppressNextLocalVisit = false;
       else local.visit(current, t.title);
     }
-    renderHomePicks();
   }
   function loadUrl(url) {
     loading(true);
@@ -316,6 +314,7 @@
     loading(false);
     if ($('#drawer')) $('#drawer').hidden = true;
     if ($('#libraryPanel')) $('#libraryPanel').hidden = true;
+    syncToolbarState();
     if (url) go(url);
     else {
       $('#q').value = '';
@@ -519,6 +518,10 @@
     addr.select();
     showSuggestions(addr.value, 'address');
   });
+  function syncToolbarState() {
+    $('#gear').setAttribute('aria-pressed', String(!$('#drawer').hidden));
+    $('#library').setAttribute('aria-pressed', String(!$('#libraryPanel').hidden));
+  }
   $('#home').addEventListener('click', home);
   $('#back').addEventListener('click', tabBack);
   $('#fwd').addEventListener('click', tabForward);
@@ -528,10 +531,15 @@
   });
   $('#bookmark').addEventListener('click', toggleCurrentBookmark);
   $('#library').addEventListener('click', function () {
-    openLibrary('bookmarks');
+    if ($('#libraryPanel').hidden) openLibrary('bookmarks');
+    else {
+      $('#libraryPanel').hidden = true;
+      syncToolbarState();
+    }
   });
   $('#libraryClose').addEventListener('click', function () {
     $('#libraryPanel').hidden = true;
+    syncToolbarState();
   });
   frame.addEventListener('load', function () {
     loading(false);
@@ -701,14 +709,9 @@
   }
   function setTheme(t) {
     var root = document.documentElement;
-    if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t);
+    var themes = ['light', 'dark', 'midnight', 'forest', 'rose', 'sand'];
+    if (themes.indexOf(t) >= 0) root.setAttribute('data-theme', t);
     else root.removeAttribute('data-theme');
-    try {
-      if (t === 'light' || t === 'dark') localStorage.setItem('waddle.theme', t);
-      else localStorage.removeItem('waddle.theme');
-    } catch (e) {
-      /* storage is off */
-    }
   }
   function panic() {
     var to = (state && state.config.ui.panicUrl) || 'about:blank';
@@ -900,21 +903,40 @@
       extra = {};
       suppressNextLocalVisit = !!current;
       apply(s, true);
-      renderHomePicks();
       toast('New identity');
       if (current) reload();
       return s;
     });
   }
   var armed = 0;
+  var freshTimer = 0;
+  function disarmFresh() {
+    armed = 0;
+    clearTimeout(freshTimer);
+    $('#fresh').classList.remove('armed');
+    $('#fresh').setAttribute('aria-pressed', 'false');
+    $('#fresh').setAttribute('aria-label', 'New identity');
+    $('#fresh').title = 'New identity';
+  }
   $('#fresh').addEventListener('click', function () {
-    // It signs you out everywhere, so it takes two clicks.
+    var button = $('#fresh');
+    // It signs you out everywhere, so the first click visibly arms the action.
     if (Date.now() - armed < 4000) {
-      armed = 0;
+      disarmFresh();
+      button.classList.add('confirmed');
+      setTimeout(function () {
+        button.classList.remove('confirmed');
+      }, 700);
       newIdentity().catch(function () {});
     } else {
       armed = Date.now();
-      toast('Click again for a new identity');
+      button.classList.add('armed');
+      button.setAttribute('aria-pressed', 'true');
+      button.setAttribute('aria-label', 'Confirm new identity');
+      button.title = 'Click again to confirm new identity';
+      clearTimeout(freshTimer);
+      freshTimer = setTimeout(disarmFresh, 4000);
+      toast('Click again to start a new identity');
     }
   });
 
@@ -948,7 +970,6 @@
     if (!s || !s.config) return;
     state = s;
     var p = s.pool;
-    var c = s.config;
     var last = p.last;
     var health = HEALTH[p.health] || HEALTH.searching;
     var browsing = document.body.classList.contains('browsing');
@@ -988,99 +1009,28 @@
           ? matchingLast.detail
           : 'Route';
 
-    var chips = $('#chips');
-    chips.textContent = '';
-    var id = s.identity || {};
-    [
-      [health[0], p.alive ? p.alive + ' live' : health[1], 'proxies'],
-      [null, c.route.hops === 1 ? '1 hop' : c.route.hops + ' hops', 'route'],
-      [null, 'DNS · ' + { auto: 'auto', stack: 'own', exit: 'exit' }[c.dns.mode], 'dns'],
-      [id.detectable ? 'warn' : null, id.on ? id.label : 'Real browser', 'identity'],
-      s.blocked ? [null, s.blocked.toLocaleString() + ' blocked', 'privacy'] : null,
-    ].forEach(function (x) {
-      if (!x) return;
-      chips.appendChild(
-        pill(x[0], x[1], function () {
-          open(x[2]);
-        })
-      );
-    });
-
-    var links = $('#links');
-    links.textContent = '';
-    c.ui.links.forEach(function (line) {
-      var m = /^(.*)\s+(https?:\/\/\S+)$/.exec(line);
-      if (!m) return;
-      links.appendChild(
-        el(
-          'button',
-          {
-            class: 'tile',
-            title: m[2],
-            onclick: function () {
-              go(m[2]);
-            },
-          },
-          [el('b', { text: m[1].trim().charAt(0).toUpperCase() }), el('span', { text: m[1].trim() })]
-        )
-      );
-    });
-    links.hidden = !links.firstChild || !frontend.showLinks;
-    links.style.setProperty('--n', String(Math.min(4, links.childNodes.length || 1)));
-    $('#chips').hidden = !frontend.showStatus;
-
-    setTheme(c.ui.theme);
     applyFrontendPrefs();
-    renderHomePicks();
     dress();
     if (!$('#drawer').hidden) render(force);
   }
   function applyFrontendPrefs() {
     if (!local) return;
     frontend = local.preferences();
+    setTheme(frontend.theme);
     var root = document.documentElement;
     root.setAttribute('data-accent', frontend.accent);
     root.setAttribute('data-density', frontend.density);
     root.setAttribute('data-text-size', frontend.textSize);
     document.body.setAttribute('data-tab-position', frontend.tabPosition);
-    var color = local.accentColors[frontend.accent] || local.accentColors.orange;
+    var color = frontend.accent === 'custom' ? frontend.accentCustom : local.accentColors[frontend.accent] || frontend.accent;
+    if (!/^#[0-9a-f]{6}$/i.test(color)) color = local.accentColors.orange;
     root.style.setProperty('--accent', color);
-    $('#links').hidden = !frontend.showLinks || !$('#links').firstChild;
-    $('#chips').hidden = !frontend.showStatus;
+    var rgb = color.match(/[0-9a-f]{2}/gi).map(function (x) {
+      return parseInt(x, 16);
+    });
+    var luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+    root.style.setProperty('--ink', luminance > 0.62 ? '#21170d' : '#fff');
     renderBrowserTabs();
-  }
-  function renderHomePicks() {
-    var section = $('#homePicks');
-    var host = $('#homePickList');
-    if (!section || !host || !local) return;
-    var items = local.suggestions('', browserTabs).filter(function (x) {
-      return x.url !== current;
-    });
-    host.textContent = '';
-    if (!frontend.showRecommendations || !items.length) {
-      section.hidden = true;
-      return;
-    }
-    items.slice(0, 4).forEach(function (item) {
-      host.appendChild(
-        el(
-          'button',
-          {
-            class: 'pick',
-            title: item.url,
-            onclick: function () {
-              go(item.url);
-            },
-          },
-          [
-            el('span', { class: 'pick-kind', text: item.kind }),
-            el('b', { text: item.title || item.url }),
-            el('small', { text: item.url.replace(/^https?:\/\//, '') }),
-          ]
-        )
-      );
-    });
-    section.hidden = !host.firstChild;
   }
   var externalTimer = 0;
   var externalAbort = null;
@@ -1234,10 +1184,7 @@
       pending = null;
       api('config', p).then(apply, function () {});
     }, 250);
-    if (keys[0] === 'ui') {
-      setTheme(state.config.ui.theme);
-      dress();
-    }
+    if (keys[0] === 'ui') dress();
   }
   var get = function (path) {
     return path.split('.').reduce(function (o, k) {
@@ -1609,14 +1556,16 @@
       o
     );
   }
-  function setFrontendPreference(key, value) {
+  function setFrontendPreferences(patch) {
     if (!local) return;
+    frontend = local.savePreferences(patch || {});
+    applyFrontendPrefs();
+    if (!$('#drawer').hidden) render(true);
+  }
+  function setFrontendPreference(key, value) {
     var patch = {};
     patch[key] = value;
-    frontend = local.savePreferences(patch);
-    applyFrontendPrefs();
-    renderHomePicks();
-    if (!$('#drawer').hidden) render(true);
+    setFrontendPreferences(patch);
   }
   function localSel(label, key, opts) {
     return row(
@@ -1631,6 +1580,27 @@
         },
       })
     );
+  }
+  function localSeg(label, key, opts, o) {
+    var cur = frontend[key];
+    var box = el(
+      'div',
+      { class: 'seg', role: 'group', 'aria-label': label },
+      opts.map(function (x) {
+        var value = Array.isArray(x) ? x[0] : x;
+        var selected = String(cur) === String(value);
+        return el('button', {
+          class: selected ? 'on' : '',
+          'aria-pressed': String(selected),
+          'data-k': 'local.' + key + '=' + value,
+          text: Array.isArray(x) ? x[1] : String(x),
+          onclick: function () {
+            setFrontendPreference(key, value);
+          },
+        });
+      })
+    );
+    return row(label, box, o);
   }
   function localToggle(label, key, hint) {
     var on = !!frontend[key];
@@ -2467,6 +2437,7 @@
             btn('New identity', newIdentity, true),
             btn('What sites see', function () {
               $('#drawer').hidden = true;
+              syncToolbarState();
               go(CHECK_NAME);
               return null;
             }),
@@ -2534,22 +2505,7 @@
           return x.url === ui.search;
         })[0];
         var custom = !preset || extra.searchCustom;
-        var backupInput = el('input', {
-          type: 'file',
-          accept: '.json,application/json',
-          class: 'visually-hidden',
-          'aria-label': 'Restore a Waddle backup',
-          onchange: function (e) {
-            importMigrationBackup(e.target.files && e.target.files[0]);
-            e.target.value = '';
-          },
-        });
         var r = [
-          seg('Theme', 'ui.theme', [
-            ['auto', 'Auto'],
-            ['light', 'Light'],
-            ['dark', 'Dark'],
-          ]),
           row(
             'Search',
             dropdown({
@@ -2569,15 +2525,40 @@
             })
           ),
           custom ? txt('Address, with %s for the words', 'ui.search', 'https://…?q=%s', { col: true }) : null,
-          area('Quick links', 'ui.links', 4, 'Name https://address'),
           h2('Appearance'),
+          localSeg('Theme', 'theme', [
+            ['auto', 'System'],
+            ['light', 'Light'],
+            ['dark', 'Dark'],
+            ['midnight', 'Midnight'],
+            ['forest', 'Forest'],
+            ['rose', 'Rose'],
+            ['sand', 'Sand'],
+          ]),
           localSel('Accent colour', 'accent', [
             ['orange', 'Orange'],
             ['blue', 'Blue'],
             ['violet', 'Violet'],
             ['teal', 'Teal'],
             ['rose', 'Rose'],
+            ['indigo', 'Indigo'],
+            ['emerald', 'Emerald'],
+            ['berry', 'Berry'],
+            ['gold', 'Gold'],
+            ['slate', 'Slate'],
+            ['custom', 'Custom'],
           ]),
+          row(
+            'Custom accent',
+            el('input', {
+              type: 'color',
+              value: frontend.accent === 'custom' ? frontend.accentCustom : local.accentColors[frontend.accent] || frontend.accent,
+              'aria-label': 'Custom accent colour',
+              onchange: function (e) {
+                setFrontendPreferences({ accent: 'custom', accentCustom: e.target.value });
+              },
+            })
+          ),
           localSel('Interface density', 'density', [
             ['comfortable', 'Comfortable'],
             ['compact', 'Compact'],
@@ -2592,10 +2573,6 @@
             ['top', 'Below the toolbar'],
             ['bottom', 'Below the page'],
           ]),
-          h2('Start page'),
-          localToggle('Show quick links', 'showLinks'),
-          localToggle('Show local recommendations', 'showRecommendations'),
-          localToggle('Show status chips', 'showStatus'),
           localToggle(
             'DuckDuckGo web suggestions',
             'externalSuggestions',
@@ -2610,33 +2587,20 @@
             btn('Inspect page', function () {
               openLibrary('inspect');
             }),
-            btn('Reset frontend settings', function () {
+            btn('Reset appearance', function () {
               frontend = local.savePreferences({
+                theme: 'auto',
                 accent: 'orange',
+                accentCustom: '#ff8a1f',
                 density: 'comfortable',
                 textSize: 'normal',
                 tabPosition: 'top',
-                showLinks: true,
-                showRecommendations: true,
-                showStatus: true,
                 externalSuggestions: false,
               });
               applyFrontendPrefs();
-              renderHomePicks();
+              toast('Appearance reset');
             }),
           ]),
-          h2('Backup & migration'),
-          el('div', {
-            class: 'hint',
-            text: 'One versioned file moves server settings and sources plus this browser’s bookmarks, saved pages, history, tabs and appearance. Session cookies, request logs and the live proxy cache are not included. Treat the backup as private.',
-          }),
-          el('div', { class: 'btns' }, [
-            btn('Export full backup', exportMigrationBackup),
-            btn('Restore backup', function () {
-              backupInput.click();
-            }),
-          ]),
-          backupInput,
           h2('Keyboard shortcuts'),
           el('div', {
             class: 'hint',
@@ -2727,7 +2691,6 @@
     }
     var result = local.toggleBookmark(current, pageTitle || current);
     updateBookmarkButton();
-    renderHomePicks();
     if (!$('#libraryPanel').hidden && libraryTab === 'bookmarks') renderLibrary();
     toast(result.added ? 'Bookmark added' : 'Bookmark removed');
   }
@@ -2737,6 +2700,7 @@
     $('#drawer').hidden = true;
     $('#libraryPanel').hidden = false;
     renderLibrary();
+    syncToolbarState();
     if (libraryTab === 'inspect') refreshInspector();
   }
   function renderLibrary() {
@@ -2777,7 +2741,6 @@
           onclick: function () {
             var item = local.saveForLater(current, pageTitle || current);
             if (!item) return toast('This address cannot be saved');
-            renderHomePicks();
             renderLibrary();
             toast('Saved for later');
           },
@@ -2787,168 +2750,23 @@
     if (currentButton) buttons.push(currentButton);
     return el('div', { class: 'library-actions' }, buttons);
   }
-  function downloadLocal(name, text, type) {
-    try {
-      var url = URL.createObjectURL(new Blob([text], { type: type }));
-      var a = el('a', { href: url, download: name });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(function () {
-        URL.revokeObjectURL(url);
-      }, 1000);
-    } catch (e) {
-      toast('Download is unavailable in this browser');
-    }
-  }
   function importBookmarkFile(file) {
     if (!file || !local) return;
     file
       .text()
       .then(function (text) {
-        var incoming;
-        try {
-          incoming = JSON.parse(text);
-          if (Array.isArray(incoming)) incoming = { bookmarks: incoming };
-        } catch (e) {
-          var parsed = new DOMParser().parseFromString(text, 'text/html');
-          var bookmarks = [].map.call(parsed.querySelectorAll('a[href]'), function (a) {
-            return { url: a.href, title: a.textContent.trim() || a.href, folder: 'Imported' };
-          });
-          incoming = { folders: ['Imported'], bookmarks: bookmarks };
-        }
-        var count = local.importBookmarks(incoming);
+        var parsed = new DOMParser().parseFromString(text, 'text/html');
+        var bookmarks = [].map.call(parsed.querySelectorAll('a[href]'), function (a) {
+          return { url: a.href, title: a.textContent.trim() || a.href, folder: 'Imported' };
+        });
+        var count = local.importBookmarks({ folders: ['Imported'], bookmarks: bookmarks });
         librarySearch = '';
         libraryFolder = 'All';
         renderLibrary();
-        renderHomePicks();
         toast(count + ' bookmark' + (count === 1 ? '' : 's') + ' imported');
       })
       .catch(function () {
         toast('Could not read that bookmarks file');
-      });
-  }
-  function portableTabs(value) {
-    if (!Array.isArray(value)) return [newTabRecord()];
-    var tabs = value.slice(0, 16).map(function (item) {
-      item = item && typeof item === 'object' ? item : {};
-      var history = (Array.isArray(item.history) ? item.history : [])
-        .slice(-100)
-        .map(function (entry) {
-          var url = local.cleanUrl(entry && entry.url);
-          return url ? { url: url, title: String((entry && entry.title) || url).slice(0, 200), at: Number(entry.at) || Date.now() } : null;
-        })
-        .filter(Boolean);
-      var url = local.cleanUrl(item.url || '');
-      var index = Number(item.index);
-      return {
-        id: String(item.id || makeId()).slice(0, 80),
-        url: url,
-        title: String(item.title || (url ? url.replace(/^https?:\/\//, '') : 'New tab')).slice(0, 200),
-        history: history,
-        index: Number.isFinite(index) ? Math.max(-1, Math.min(history.length - 1, index)) : -1,
-        route: null,
-      };
-    });
-    return tabs.length ? tabs : [newTabRecord()];
-  }
-  function exportMigrationBackup() {
-    return api('backup')
-      .then(function (backup) {
-        backup.browser = local.exportState();
-        backup.tabs = browserTabs.map(function (item) {
-          return {
-            id: item.id,
-            url: item.url,
-            title: item.title,
-            history: item.history,
-            index: item.index,
-          };
-        });
-        backup.activeTabId = activeBrowserTabId;
-        var date = new Date().toISOString().slice(0, 10);
-        downloadLocal('waddle-backup-' + date + '.json', JSON.stringify(backup, null, 2), 'application/json');
-        toast('Full backup downloaded — keep it somewhere private');
-      })
-      .catch(function () {
-        toast('Could not create a backup');
-      });
-  }
-  function importMigrationBackup(file) {
-    if (!file || !local) return;
-    file
-      .text()
-      .then(function (text) {
-        var incoming;
-        try {
-          incoming = JSON.parse(text);
-        } catch (error) {
-          throw new Error('That file is not valid JSON');
-        }
-        if (
-          !incoming ||
-          incoming.format !== 'waddle-backup' ||
-          incoming.version !== 1 ||
-          !incoming.config ||
-          typeof incoming.config !== 'object' ||
-          Array.isArray(incoming.config)
-        )
-          throw new Error('This is not a supported Waddle backup');
-        if (
-          !window.confirm(
-            'Restore this Waddle backup? It replaces server settings and this browser’s library, tabs and appearance preferences. The file can include private browsing history.'
-          )
-        )
-          return;
-        var beforeLocal = local.exportState();
-        var beforeTabs = localStorage.getItem(TAB_KEY);
-        var beforeActive = localStorage.getItem(ACTIVE_TAB_KEY);
-        var restoreTabs = Array.isArray(incoming.tabs);
-        var tabs = restoreTabs ? portableTabs(incoming.tabs) : null;
-        var nextActive = tabs
-          ? tabs.some(function (item) {
-              return item.id === incoming.activeTabId;
-            })
-            ? incoming.activeTabId
-            : tabs[0].id
-          : activeBrowserTabId;
-        var rollback = function () {
-          if (incoming.browser) local.importState(beforeLocal);
-          try {
-            if (beforeTabs == null) localStorage.removeItem(TAB_KEY);
-            else localStorage.setItem(TAB_KEY, beforeTabs);
-            if (beforeActive == null) localStorage.removeItem(ACTIVE_TAB_KEY);
-            else localStorage.setItem(ACTIVE_TAB_KEY, beforeActive);
-          } catch (error) {
-            /* best effort rollback */
-          }
-        };
-        try {
-          if (incoming.browser && !local.importState(incoming.browser)) throw new Error('Browser storage is full; nothing was changed.');
-          if (tabs) {
-            localStorage.setItem(TAB_KEY, JSON.stringify(tabs));
-            localStorage.setItem(ACTIVE_TAB_KEY, nextActive);
-          }
-        } catch (error) {
-          rollback();
-          throw error;
-        }
-        api('backup', { format: incoming.format, version: incoming.version, config: incoming.config })
-          .then(function (s) {
-            activeBrowserTabId = nextActive;
-            apply(s, true);
-            toast('Backup restored — reopening Waddle…');
-            setTimeout(function () {
-              location.reload();
-            }, 450);
-          })
-          .catch(function () {
-            rollback();
-            toast('Restore failed — your existing browser data was kept');
-          });
-      })
-      .catch(function (error) {
-        toast(error && error.message ? error.message : 'Could not read that backup');
       });
   }
   function librarySearchInput(label) {
@@ -2969,7 +2787,7 @@
     var data = local.get();
     var importInput = el('input', {
       type: 'file',
-      accept: '.json,.html,.htm,application/json,text/html',
+      accept: '.html,.htm,text/html',
       class: 'visually-hidden',
       'aria-label': 'Import bookmarks',
       onchange: function (e) {
@@ -2980,14 +2798,7 @@
       el('div', { class: 'btns' }, [
         el('button', {
           class: 'btn',
-          text: 'Export JSON',
-          onclick: function () {
-            downloadLocal('waddle-bookmarks.json', JSON.stringify(local.exportBookmarks(), null, 2), 'application/json');
-          },
-        }),
-        el('button', {
-          class: 'btn',
-          text: 'Import',
+          text: 'Import browser bookmarks',
           onclick: function () {
             importInput.click();
           },
@@ -2999,7 +2810,7 @@
     content.appendChild(
       el('div', {
         class: 'hint',
-        text: 'Bookmarks are kept only in this browser. Import accepts Waddle JSON or a browser bookmarks HTML file.',
+        text: 'Bookmarks stay in this browser. Import accepts a browser bookmarks HTML file; Waddle does not export them.',
       })
     );
     var folderRow = el('div', { class: 'folder-tools' });
@@ -3057,6 +2868,7 @@
         text: 'Open',
         onclick: function () {
           $('#libraryPanel').hidden = true;
+          syncToolbarState();
           go(item.url);
         },
       })
@@ -3080,21 +2892,19 @@
       move.value = item.folder || 'Unsorted';
       actions.appendChild(move);
     }
-    if (type !== 'recommendation')
-      actions.appendChild(
-        el('button', {
-          class: 'x',
-          title: 'Remove',
-          'aria-label': 'Remove ' + item.title,
-          text: '×',
-          onclick: function () {
-            local.remove(type === 'bookmark' ? 'bookmarks' : type === 'saved' ? 'saved' : 'history', item.id);
-            renderLibrary();
-            renderHomePicks();
-            updateBookmarkButton();
-          },
-        })
-      );
+    actions.appendChild(
+      el('button', {
+        class: 'x',
+        title: 'Remove',
+        'aria-label': 'Remove ' + item.title,
+        text: '×',
+        onclick: function () {
+          local.remove(type === 'bookmark' ? 'bookmarks' : type === 'saved' ? 'saved' : 'history', item.id);
+          renderLibrary();
+          updateBookmarkButton();
+        },
+      })
+    );
     card.appendChild(actions);
     return card;
   }
@@ -3163,7 +2973,6 @@
             local.clearHistory();
             librarySearch = '';
             renderLibrary();
-            renderHomePicks();
             toast('History cleared');
           },
         }),
@@ -3446,16 +3255,20 @@
   }
   function open(which) {
     if (which && TABS[which]) tab = which;
+    $('#libraryPanel').hidden = true;
     $('#drawer').hidden = false;
     render(true);
     refresh();
+    syncToolbarState();
   }
   $('#gear').addEventListener('click', function () {
     var d = $('#drawer');
     if (d.hidden) open();
-    else d.hidden = true;
+    else {
+      d.hidden = true;
+      syncToolbarState();
+    }
   });
-  $('#checkpoint').addEventListener('click', exportMigrationBackup);
   $('#route').addEventListener('click', function () {
     open(document.body.classList.contains('browsing') ? 'route' : 'proxies');
   });
@@ -3465,6 +3278,7 @@
     else if (!$('#libraryPanel').hidden) $('#libraryPanel').hidden = true;
     else if (!$('#drawer').hidden) $('#drawer').hidden = true;
     closeSuggestions();
+    syncToolbarState();
   });
   // Enter in a one-line "add" field presses the button next to it.
   $('#panel').addEventListener('keydown', function (e) {
@@ -3530,14 +3344,12 @@
   renderBrowserTabs();
   applyFrontendPrefs();
   updateBookmarkButton();
-  renderHomePicks();
   Promise.all([api('state').then(apply, function () {}), ready()]).then(function () {
     var h = fromHash() || (activeBrowserTab() && activeBrowserTab().url) || '';
     if (h) go(h, { mode: 'replace' });
     else show('');
     renderBrowserTabs();
     updateBookmarkButton();
-    renderHomePicks();
   });
   window.addEventListener('hashchange', function () {
     var h = fromHash();

@@ -106,7 +106,7 @@ function away() {
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>Reconnecting</title><style>' +
     AWAY_CSS +
-    '</style><script>try{var t=localStorage.getItem("waddle.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>' +
+    '</style><script>try{var p=JSON.parse(localStorage.getItem("waddle.frontend.v1")||"{}"),t=p.theme||localStorage.getItem("waddle.theme");if(t==="midnight"||t==="forest")t="dark";else if(t==="rose"||t==="sand")t="light";if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>' +
     '</head><body><main><img src="/-/icon.svg" alt=""><h1>Reconnecting</h1>' +
     '<p>Waddle is not answering right now. This page comes back by itself.</p>' +
     '<button id="go">Try again</button><div class="wait" id="wait" role="status"></div></main><script>(function(){' +

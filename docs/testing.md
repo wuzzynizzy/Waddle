@@ -5,7 +5,7 @@ browser.
 
 ```sh
 npm test              # unit and integration: 191 tests
-npm run test:browser  # end to end in Chrome: 152 checks
+npm run test:browser  # end to end in Chrome: 134 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
@@ -40,12 +40,12 @@ come through an exit.
 | `tar.test.js`     | 4     | Reading repository archives: long names, pax headers, split chunks, damaged input.                                                                                                                                                                                                                                                                                |
 | `rewrite.test.js` | 18    | HTML, CSS, `srcset`, import maps, JavaScript imports, HLS playlists; frames and sandboxed frames; text that only looks like an address is left alone; multi-megabyte hostile input.                                                                                                                                                                               |
 | `cookies.test.js` | 10    | Domain, path, `Secure`, `HttpOnly`, expiry, public suffixes, jar limits, sessions (including inside a cross-site frame).                                                                                                                                                                                                                                          |
-| `local.test.js`   | 3     | Browser-local backup export/import, sanitizing unsafe URLs/preferences, and rollback when storage fills.                                                                                                                                                                                                                                                    |
-| `config.test.js`  | 23    | Defaults, validation and clamping, persistence, damaged files, routing rules, source parsing; expanded resolver/source/hop limits and small-profile bounds; no setting reaches a site without a proxy; identities, randomiser and phone mode.                                                                                                        |
+| `local.test.js`   | 3     | Browser-local bookmarks, saved addresses, history and preferences; one-way browser HTML import; unsafe URL and preference sanitization.                                                                                                                                                                                                                                                    |
+| `config.test.js`  | 24    | Defaults, validation and clamping, persistence, damaged files, routing rules, source parsing; expanded resolver/source/hop limits and small-profile bounds; no setting reaches a site without a proxy; identities, randomiser and phone mode.                                                                                                        |
 | `dns.test.js`     | 21    | Wire format, caching, padding, each of the five orders, failover, "no such name", blocked names; that a visited site's name only ever travels through a proxy; the system fallback and its limits; the public resolver list from download to the kept few.                                                                                                        |
 | `net.test.js`     | 25    | That a request without a proxy is refused; HTTP, SOCKS4 and SOCKS5 tunnels; credentials; chains of two and three; which hop failed and why; timeouts; stale connections; names resolved at the exit; plain HTTP carried as a tunnel; the private-address guard.                                                                                                   |
 | `pool.test.js`    | 26    | Harvesting from each kind of source, testing, protocol detection, discovery, persistence; vetting (tampering, header leaks); eviction and blame; chains and entry countries; one exit per page and exits for third parties; health; pausing when nothing answers; adaptive scheduling.                                                                            |
-| `proxy.test.js`   | 44    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies, trackers, workers, HTTPS only, error pages, routing/failover, chains through 16 proxies, backup API, downloadable tour/installers, auth guards, inspector redaction and WebSockets. |
+| `proxy.test.js`   | 43    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies, trackers, workers, HTTPS only, error pages, routing/failover, chains through 16 proxies, removed backup/tour endpoints, installers, auth guards, inspector redaction and WebSockets. |
 | `timing.test.js`  | 8     | Response times, below.                                                                                                                                                                                                                                                                                                                                            |
 
 The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
@@ -59,20 +59,14 @@ The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
 - A third party in a frame gets no cookies and its own storage, and is a site of its own when opened
   in the address bar.
 - Multiple browser tabs keep separate addresses and histories; `_blank` links open another Waddle
-  tab. Bookmarks, folders, JSON/HTML import and export, saved addresses, searchable local history,
-  and New identity cleanup are exercised in the browser.
-- The homepage's **Save checkpoint** action directly downloads a full versioned backup instead of
-  opening settings. Full backups include server settings plus browser-local library/preferences/tabs,
-  and restore while excluding session cookies.
-- The homepage and tour illustrations retain only Waddle's facial circles; browser checks verify that
-  the hand-authored mascots' eyes, wings, feet and scarf have independent animations.
-- The hand-authored SVG tour is driven in-browser: chain controls reach 16 hops, resolver strategy
-  buttons update their explanation, the stack grows, platform tabs switch installers and the mobile
-  menu keeps its accessibility state.
+  tab. Bookmarks, folders, one-way browser HTML import, saved addresses, searchable local history,
+  and New identity cleanup are exercised in the browser. The library has no export controls.
+- The minimal start screen keeps the proxy entry flow prominent, retains GitHub/MIT attribution, and
+  omits promotional panels, checkpoint controls and export actions.
 - The Inspect panel shows request routes and statuses, response headers, cookie names with HttpOnly
   values hidden, and rewritten source without the Waddle bootstrap.
-- Recommendations are drawn from the browser's local library; external suggestions are off by
-  default. Appearance, density, text size, tab position and start-page options are persisted locally.
+- Address suggestions are drawn from the browser's local library; external suggestions are off by
+  default. Theme, accent, density, text size and tab position are persisted locally.
 - The settings drawer saves changes, shows the page's route, and keeps unsent text. At a phone's
   width nothing runs off the side of the screen.
 - **What sites see** shows the claimed browser next to the real one.

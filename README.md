@@ -1,17 +1,10 @@
 # Waddle
 
-A web proxy you run yourself. Type an address and Waddle fetches the page through a proxy that it
-found and tested on its own, so the site sees the proxy's address and a browser identity you chose
-instead of yours.
+**Self-hosted. Proxy-only.** Waddle is a browser shell that opens sites through proxies it finds and
+tests. It never contacts a site directly. Requires Node.js 20+; no build step or runtime dependencies.
 
-Waddle never contacts a site directly. If no proxy is available, the page does not load and Waddle
-says why.
-
-No runtime dependencies or build step: the one-command installer starts Waddle and opens your
-browser. From a checkout, use `start-waddle.sh` or `start-waddle.cmd`. Node.js 20 or newer is required.
-
-The interactive product tour is served at `/tour` when Waddle is running ·
-[Install and self-host guide](docs/installing.md) · [Source on GitHub](https://github.com/wuzzynizzy/Waddle)
+[MIT license](LICENSE) · [Source on GitHub](https://github.com/wuzzynizzy/Waddle) ·
+[Install guide](docs/installing.md)
 
 ![A page opened through Waddle](docs/img/browsing.png)
 
@@ -34,8 +27,8 @@ terminal open; `Ctrl+C` stops the server. Node.js 20 or newer is required. For a
 clone the repository and run `./start-waddle.sh` (or `start-waddle.cmd` on Windows). See
 [Install and run](docs/installing.md) for the few details you might need.
 
-Give it a minute on the first start. Waddle downloads its proxy lists and tests what they offer, and
-the chip on the start page counts the proxies that passed. Pages load once it shows at least one.
+Give it a minute on the first start. Waddle downloads its proxy lists and tests what they offer. The
+toolbar shows route status; pages load once at least one proxy is working.
 The `/install.sh` and `/install.ps1` routes are implemented for the planned `waddle.wisp.uno` host,
 but that domain's DNS and deployment are not verified here; use the GitHub-hosted installers unless
 you have confirmed the public host is live.
@@ -53,7 +46,7 @@ machine, set a password and put it behind HTTPS: see [docs/security.md](docs/sec
 ### If nothing loads
 
 Waddle reaches sites only through proxies, so it needs a network that lets it connect to them. Many
-hosted sandboxes, preview environments and office networks do not. There the start page says
+hosted sandboxes, preview environments and office networks do not. There the toolbar says
 **This network blocks proxies**, and every address you open gives a page saying the same. That is
 Waddle working as designed. Run it on a machine with ordinary internet access instead.
 
@@ -105,32 +98,23 @@ page gets none, and its own separate storage. Requests to 171 known tracking and
 are refused before they leave. Plain `http://` addresses are upgraded to HTTPS. WebRTC is blocked.
 **New identity** drops cookies, exits and the fingerprint in one go.
 
-**Tabs and a local library.** Open up to 16 Waddle tabs, each with its own address and back/forward
-history; links opened in a new window become Waddle tabs. Bookmark pages, sort bookmarks into
-folders, and import browser-bookmark HTML or Waddle JSON. **Saved** keeps read-later addresses, not
-offline copies. **History** is searchable. These records stay in this browser, not on Waddle's
-server. New identity clears history and open tabs but keeps bookmarks and saved addresses.
+**Browser tabs and a local library.** Open up to 16 Waddle tabs, each with its own address and
+back/forward history; links opened in a new window become Waddle tabs. Bookmark pages, sort them into
+folders, import standard browser-bookmark HTML, and save read-later addresses. History is searchable.
+These records stay in this browser, not on Waddle's server. There is no built-in backup or export.
+New identity clears history and open tabs but keeps bookmarks and saved addresses.
 
-**A start page that remembers.** Recommendations and address-bar matches come from this browser's
-bookmarks, saved pages, history and open tabs. Nothing is sent to a search service for suggestions
-by default. If enabled in Settings → General, DuckDuckGo suggestions are requested through the
-current proxy exit.
+**Local suggestions.** Address matches come from this browser's bookmarks, saved pages, history and
+open tabs. External suggestions are off by default. If enabled in Settings → General, DuckDuckGo
+suggestions are requested through the current proxy exit.
 
 **Inspect.** See recent requests with their site status, response size, duration, route and blocked
 state, plus selected response headers, cookies for the current address and the page's rewritten
 source. HttpOnly cookie values and `Set-Cookie` response values are hidden. The inspector's request
 log is kept in memory for this Waddle session and is cleared by New identity.
 
-**Frontend settings.** Choose an accent colour, interface density and text size; move the tab strip;
-and show or hide start-page links, recommendations and status chips. These preferences are saved
-only in this browser and do not change Waddle's server configuration. Keyboard shortcuts and the
-panic key are listed in Settings → General.
-
-**A portable checkpoint.** Click **Save checkpoint** on the homepage to download one versioned file
-with server settings and sources, browser-local bookmarks, saved pages, history, tabs and appearance
-preferences. To restore it, open Settings → General → Backup & migration on the destination Waddle.
-Session cookies, request logs, live proxies and DNS cache are deliberately excluded. Keep the file
-private because it can contain browsing history.
+**A minimal start screen.** One address/search field, no promotional panels or quick-visit cards.
+Themes, accent, layout and text size remain local to this browser; they are not synced to the server.
 
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
 what to do. If the server itself cannot be reached, the tab shows a "Reconnecting" screen that
@@ -138,25 +122,19 @@ comes back by itself, never an unstyled error page from the host in front of it.
 
 ## The interface
 
-The start page centers one search/address box, with **Save checkpoint** above it to download a
-portable backup directly. Local recommendations and quick links sit beneath the search; status chips
-show the pool, route, DNS and identity, and open the matching settings. Waddle's hand-authored mascot
-waves, blinks and waddles while respecting reduced-motion preferences.
+The start screen is intentionally small: Waddle, one search/address field, and quiet MIT/GitHub
+attribution. The route status stays in the toolbar. Themes and accent choices live in this browser.
 
 ![Start page](docs/img/landing.png)
 
 While browsing, the bar shows the real address, the country of the exit and how long the page took.
-The arrows button asks for a new exit; the bookmark icon saves the current page; the book opens
-Bookmarks, Saved, History and Inspect; the identity star starts a new identity; and the sliders open
+The arrows button asks for a new exit; the bookmark fills when the current page is saved; the book
+opens Bookmarks, Saved, History and Inspect; the sparkle confirms a new identity; and the sliders open
 settings. The tab strip keeps each open page and its back/forward history separate.
 
 ![Bookmarks, folders and the local library](docs/img/library.png)
 
 ![Recent requests in Inspect](docs/img/inspect.png)
-
-![Local address suggestions and recommendations](docs/img/recommendations.png)
-
-![Browser-local appearance settings](docs/img/frontend-settings.png)
 
 <img src="docs/img/route.png" width="270" alt="Route settings"> <img src="docs/img/proxies.png" width="270" alt="Proxies"> <img src="docs/img/dns.png" width="270" alt="DNS settings">
 
@@ -200,7 +178,7 @@ identity. A service worker catches whatever is left. More in
 
 ```sh
 npm test              # 191 unit and integration tests, no network needed
-npm run test:browser  # 152 browser checks in a real Chrome (see docs/testing.md)
+npm run test:browser  # 134 browser checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
@@ -241,11 +219,14 @@ Waddle listens on localhost by default. Set a strong password and add HTTPS befo
 
 ## Documentation
 
-- [Product tour](public/tour.html): interactive route and resolver demos, installers and migration
-- [Install and run](docs/installing.md): one-command startup, passwords, privacy and backups
+- [Install and run](docs/installing.md): one-command startup, passwords and privacy
 - [Architecture](docs/architecture.md): how a request travels, how the pool works
 - [Configuration](docs/configuration.md): environment variables and every setting
-- [HTTP API](docs/api.md): what the settings panel talks to, including versioned backups
+- [HTTP API](docs/api.md): what the settings panel talks to
 - [Testing](docs/testing.md): what is covered, measured timings, how to run the browser test
 - [Security](docs/security.md): what Waddle protects, what it does not
 - [Agent notes](agents.md): repository map, safe-change invariants and verification commands
+
+## License
+
+Waddle is open source under the [MIT License](LICENSE).

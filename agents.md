@@ -16,7 +16,6 @@ browser. Keep Docker/Compose out of the supported quick-start path unless explic
 | `public/index.html`, `public/app.css`, `public/app.js` | Main shell, start page, settings, library and browser interactions. |
 | `public/local.js` | Browser-local bookmarks, saved pages, history and appearance preferences. |
 | `public/client.js`, `public/sw.js` | Proxy-page request rewriting and the service-worker leak guard. |
-| `public/tour.html`, `public/tour.css`, `public/tour.js` | Product tour, interactive demos and installer instructions. |
 | `docs/` | User, API, architecture, security and testing documentation, plus reference screenshots. |
 | `test/` | Node test suites and the optional real-browser E2E suite. |
 | `install.sh`, `install.ps1`, `start-waddle.sh`, `start-waddle.cmd` | Install and launch entry points. |
@@ -30,9 +29,9 @@ browser. Keep Docker/Compose out of the supported quick-start path unless explic
   to cross-site pages.
 - Waddle listens on localhost by default. Document password and HTTPS requirements before suggesting
   that users expose it to other machines or the internet.
-- The penguin illustrations are hand-authored SVG. Preserve that artwork; do not replace it with
-  AI-generated art unless the user explicitly asks. Animate the character itself rather than adding
-  orbiting decoration, and respect `prefers-reduced-motion`.
+- Keep the start screen intentionally minimal: one address/search entry point and quiet project
+  attribution. Do not add promotional panels, a product tour, backup or export controls without an
+  explicit request.
 - Keep controls keyboard-accessible, labeled and usable at phone widths. Preserve the current
   one-command install and source-launch workflows.
 - Do not commit generated runtime state, browser-test output or preview data. `data/` is ignored for
@@ -57,7 +56,6 @@ npm test
 npm run format:check
 git diff --check
 node --check public/app.js
-node --check public/tour.js
 node --check test/browser/e2e.mjs
 sh -n install.sh start-waddle.sh
 ```

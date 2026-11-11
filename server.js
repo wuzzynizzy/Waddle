@@ -35,11 +35,8 @@ const STATIC = {
   'app.js': 1,
   'local.js': 1,
   'app.css': 1,
-  'tour.css': 1,
-  'tour.js': 1,
   'client.js': 1,
   'sw.js': 1,
-  'tour.html': 1,
   'install.sh': 1,
   'install.ps1': 1,
   'icon.svg': 1,
@@ -47,15 +44,10 @@ const STATIC = {
   'fonts/geist-mono.woff2': 1,
 };
 const PUBLIC_ROUTES = new Set([
-  '/tour',
-  '/tour/',
-  '/download',
   '/install.sh',
   '/install.ps1',
   '/favicon.ico',
   '/-/icon.svg',
-  '/-/tour.css',
-  '/-/tour.js',
   '/-/fonts/geist.woff2',
   '/-/fonts/geist-mono.woff2',
 ]);
@@ -221,8 +213,6 @@ function createApp() {
     let body = a.body;
     if (name === 'index.html')
       body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('app.js').tag + asset('app.css').tag + asset('local.js').tag));
-    else if (name === 'tour.html')
-      body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('tour.css').tag + asset('tour.js').tag));
     res.setHeader('Content-Length', body.length);
     res.end(req.method === 'HEAD' ? undefined : body);
   }
@@ -257,13 +247,6 @@ function createApp() {
     if (req.headers['x-waddle'] !== '1') return json(res, 403, { error: 'forbidden' });
     const sess = session(req, res, proxy.isSecure(req));
     if (req.method === 'GET' && name === 'state') return json(res, 200, state(sess, req));
-    if (req.method === 'GET' && name === 'backup')
-      return json(res, 200, {
-        format: 'waddle-backup',
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        config: config.value,
-      });
     if (req.method === 'GET' && name === 'inspect') {
       let target = null;
       try {
@@ -290,7 +273,7 @@ function createApp() {
     if (!/^application\/json/i.test(req.headers['content-type'] || '')) return json(res, 415, { error: 'json only' });
     let body;
     try {
-      body = await readJson(req, name === 'backup' ? 10 << 20 : 1 << 20);
+      body = await readJson(req, 1 << 20);
     } catch (e) {
       if (e && e.code === 'ETOOBIG') {
         res.setHeader('Connection', 'close');
@@ -300,22 +283,6 @@ function createApp() {
     }
     if (!body || typeof body !== 'object') return json(res, 400, { error: 'bad json' });
 
-    if (name === 'backup') {
-      if (
-        body.format !== 'waddle-backup' ||
-        body.version !== 1 ||
-        !body.config ||
-        typeof body.config !== 'object' ||
-        Array.isArray(body.config)
-      )
-        return json(res, 400, { error: 'unsupported or invalid backup' });
-      try {
-        config.replace(body.config);
-      } catch {
-        return json(res, 400, { error: 'invalid configuration' });
-      }
-      return json(res, 200, state(sess, req));
-    }
     if (name === 'config') {
       if (body.reset === true) config.reset();
       else config.patch(body);
@@ -512,17 +479,6 @@ function createApp() {
     if (pathname === '/' || pathname === '/index.html') {
       session(req, res, proxy.isSecure(req));
       return sendAsset(req, res, 'index.html', { 'Referrer-Policy': 'same-origin' });
-    }
-    if (pathname === '/tour' || pathname === '/tour/') {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { Allow: 'GET, HEAD' });
-        return res.end();
-      }
-      return sendAsset(req, res, 'tour.html', { 'Referrer-Policy': 'no-referrer' });
-    }
-    if (pathname === '/download') {
-      res.writeHead(302, { Location: '/tour#self-host', 'Cache-Control': 'no-store' });
-      return res.end();
     }
     if (pathname === '/install.sh' || pathname === '/install.ps1') {
       if (req.method !== 'GET' && req.method !== 'HEAD') {

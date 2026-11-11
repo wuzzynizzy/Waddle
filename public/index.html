@@ -9,7 +9,7 @@
 <title>Waddle</title>
 <link rel="icon" id="favicon" href="/-/icon.svg">
 <link rel="preload" href="/-/fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
-<script>try{var t=localStorage.getItem('waddle.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<script>try{var p=JSON.parse(localStorage.getItem('waddle.frontend.v1')||'{}'),t=p.theme||localStorage.getItem('waddle.theme');if(['light','dark','midnight','forest','rose','sand'].indexOf(t)>=0)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="stylesheet" href="/-/app.css?v={{v}}">
 </head>
 <body>
@@ -23,49 +23,36 @@
   <button id="route" class="pill" title="Route" aria-label="Route"><i class="dot"></i><span></span></button>
   <button id="rotate" class="ic nav" title="New exit" aria-label="New exit"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg></button>
   <button id="bookmark" class="ic" title="Bookmark this page" aria-label="Bookmark this page" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4z"/></svg></button>
-  <button id="library" class="ic" title="Bookmarks, saved pages, history and inspect" aria-label="Open library"><svg viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H20v17H6.5A1.5 1.5 0 0 0 5 21.5zM5 4.5v17M8 7h8M8 10h8"/></svg></button>
-  <button id="fresh" class="ic" title="New identity" aria-label="New identity"><svg viewBox="0 0 24 24"><path d="M12 3l2.200 5.300L20 9l-4.300 3.900L17 19l-5-3-5 3 1.300-6.100L4 9l5.800-.700z"/></svg></button>
-  <button id="gear" class="ic" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
+  <button id="library" class="ic" title="Bookmarks, saved pages, history and inspect" aria-label="Open library" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H20v17H6.5A1.5 1.5 0 0 0 5 21.5zM5 4.5v17M8 7h8M8 10h8"/></svg></button>
+  <button id="fresh" class="ic" title="New identity" aria-label="New identity" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="m12 3 1.8 5.3L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.7L12 3zM19 14v6m3-3h-6M5 3v4M7 5H3"/></svg></button>
+  <button id="gear" class="ic" title="Settings" aria-label="Settings" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button>
 </header>
 <nav id="tabbar" role="tablist" aria-label="Open tabs"></nav>
 <div id="progress"></div>
 <main id="stage" role="tabpanel">
-  <section id="landing">
-    <div class="hero">
-      <svg viewBox="0 0 200 200" role="img" aria-label="Waddle the penguin waves, blinks, and waddles">
-        <ellipse cx="100" cy="187" rx="56" ry="5" fill="currentColor" opacity=".07"/>
-        <path class="home-foot home-foot-left" d="M62 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6H70c-5 0-8-2-8-6z" fill="#ff8a1f"/>
-        <path class="home-foot home-foot-right" d="M102 180c0-8 8-14 18-14s18 6 18 14c0 4-3 6-8 6h-20c-5 0-8-2-8-6z" fill="#ff8a1f"/>
-        <path class="pen-body home-wing-left" d="M50 96c-17 13-27 35-24 57 1 8 8 10 12 3 7-11 13-23 22-33z"/>
-        <path class="pen-body wave" d="M146 90c19-5 35-20 40-40 2-8-5-12-10-6-9 10-22 18-36 23z"/>
-        <g class="home-torso">
-          <path class="pen-body" d="M100 16c-35 0-57 29-57 70v34c0 36 23 58 57 58s57-22 57-58V86c0-41-22-70-57-70z"/>
-          <path d="M100 60c-10-13-35-10-37 12-1 8 2 14 6 19-6 9-8 20-8 32 0 27 16 45 39 45s39-18 39-45c0-12-2-23-8-32 4-5 7-11 6-19-2-22-27-25-37-12z" fill="#fff"/>
-          <g class="home-eyes">
-            <circle class="pen-body" cx="81" cy="77" r="7.5"/>
-            <circle class="pen-body" cx="119" cy="77" r="7.5"/>
-            <circle cx="83.6" cy="74.4" r="2.4" fill="#fff"/>
-            <circle cx="121.6" cy="74.4" r="2.4" fill="#fff"/>
-          </g>
-          <path d="M87 92c0-4 6-7 13-7s13 3 13 7c0 6-7 13-13 13s-13-7-13-13z" fill="#ff8a1f"/>
-          <path d="M90 93c3 2 6 3 10 3s7-1 10-3" fill="none" stroke="#d96a0b" stroke-width="2" stroke-linecap="round"/>
-          <ellipse cx="68" cy="93" rx="5.5" ry="3.2" fill="#ffd2b0"/>
-          <ellipse cx="132" cy="93" rx="5.5" ry="3.2" fill="#ffd2b0"/>
-        </g>
-      </svg>
+  <section id="landing" aria-label="Start browsing">
+    <div id="homeContent">
+      <div class="home-main">
+        <header class="home-brand">
+          <h1>Waddle</h1>
+        </header>
+        <div class="home-search">
+          <div id="searchBox">
+            <form id="start">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+              <input id="q" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter an address" aria-label="Search or enter an address" autofocus>
+              <kbd>Enter</kbd>
+            </form>
+            <div id="suggestions" role="listbox" aria-label="Suggestions" hidden></div>
+          </div>
+        </div>
+      </div>
+      <footer class="home-footer">
+        <a href="https://github.com/wuzzynizzy/Waddle" target="_blank" rel="noopener noreferrer">Source on GitHub <span aria-hidden="true">↗</span></a>
+        <span aria-hidden="true">·</span>
+        <a href="https://github.com/wuzzynizzy/Waddle/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT license</a>
+      </footer>
     </div>
-    <h1>Waddle</h1>
-    <p id="homePromise">Take the scenic route. Keep the map.</p>
-    <button id="checkpoint" class="checkpoint" type="button" aria-label="Download a portable Waddle backup">
-      <span class="checkpoint-mark" aria-hidden="true">↓</span>
-      <span class="checkpoint-copy"><b>Save checkpoint</b><small>Download settings + browser data</small></span>
-    </button>
-    <div id="searchBox"><form id="start"><input id="q" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search or enter address" aria-label="Search or enter address" autofocus></form>
-    <div id="suggestions" role="listbox" aria-label="Suggestions" hidden></div></div>
-    <div id="links"></div>
-    <section id="homePicks" hidden><h2>Pick up where you left off</h2><div id="homePickList"></div></section>
-    <div id="chips"></div>
-    <a id="takeTour" href="/tour"><span>Meet Waddle</span><span aria-hidden="true">↗</span></a>
   </section>
   <div id="fit"><iframe id="frame" title="Page" allow="fullscreen; autoplay; clipboard-read; clipboard-write; encrypted-media; picture-in-picture"></iframe></div>
 </main>

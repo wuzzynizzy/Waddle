@@ -25,18 +25,21 @@ test('defaults are complete and self-consistent', () => {
   assert.match(v.pool.echo, /^http:\/\//, 'the header echo is asked over plain HTTP: that is where a proxy can add something');
   assert.match(v.pool.judge, /^https:\/\//);
   assert.ok(v.ui.search.includes('%s'));
-  for (const line of v.ui.links) {
-    const l = c.parseLink(line);
-    assert.ok(l, line);
-    assert.equal(l.name + ' ' + l.url, line, 'already in its stored form');
-  }
+  assert.equal(Object.hasOwn(v.ui, 'links'), false, 'the minimal start screen has no configured quick visits');
   // the private choice is the default one
   assert.deepEqual([v.privacy.cookies, v.privacy.trackers], ['first', true]);
   assert.deepEqual(
     [v.spoof.languages, v.spoof.timezone, v.spoof.geo, v.spoof.webrtc, v.spoof.referer],
     ['exit', 'exit', 'block', 'block', 'origin']
   );
-  assert.deepEqual([v.ui.cloak, v.ui.panicKey, v.ui.theme], ['none', '', 'auto']);
+  assert.deepEqual([v.ui.cloak, v.ui.panicKey], ['none', '']);
+});
+
+test('homepage theme is browser-local, not a server configuration setting', () => {
+  const cfg = new c.Config();
+  assert.equal(Object.hasOwn(cfg.value.ui, 'theme'), false);
+  cfg.patch({ ui: { theme: 'midnight' } });
+  assert.equal(Object.hasOwn(cfg.value.ui, 'theme'), false, 'legacy theme values are ignored');
 });
 
 test('there is no setting that lets a site be reached without a proxy', () => {
@@ -98,7 +101,7 @@ test('patch: bad values are clamped or ignored, never stored', () => {
       panicUrl: 'javascript:alert(1)',
       panicKey: 'k'.repeat(30),
       search: 'https://find.test/?q=',
-      links: ['Docs https://docs.test/', 'example.org', 'javascript:alert(1)', 'nodot', 'Docs https://docs.test/'],
+      links: ['Docs https://docs.test/'],
     },
     junk: { nested: true },
     __proto__: { polluted: true },
@@ -136,10 +139,10 @@ test('patch: bad values are clamped or ignored, never stored', () => {
     'https://dns.quad9.net/dns-query',
   ]);
   assert.deepEqual([v.privacy.cookies, v.privacy.trackers], ['first', true]);
-  assert.deepEqual([v.ui.theme, v.ui.cloak, v.ui.panicUrl, v.ui.panicKey], ['auto', 'none', '', '']);
+  assert.deepEqual([v.ui.cloak, v.ui.panicUrl, v.ui.panicKey], ['none', '', '']);
   assert.equal(v.ui.cloakTitle.length, 80);
   assert.equal(v.ui.search, c.DEFAULTS.ui.search, 'a search address without a place for the words is no use');
-  assert.deepEqual(v.ui.links, ['Docs https://docs.test/', 'example.org https://example.org/']);
+  assert.equal(Object.hasOwn(v.ui, 'links'), false, 'legacy quick visit settings are ignored');
   assert.equal(v.junk, undefined);
   assert.equal({}.polluted, undefined);
 
@@ -166,7 +169,8 @@ test('patch: bad values are clamped or ignored, never stored', () => {
   assert.deepEqual([v.spoof.languages, v.spoof.timezone], ['de-DE, de ,en', 'Asia/Tokyo']);
   assert.deepEqual([v.privacy.cookies, v.privacy.trackers], ['none', false]);
   assert.equal(v.ui.search, 'https://search.brave.com/search?q=%s', 'a search engine can be named');
-  assert.deepEqual([v.ui.cloak, v.ui.panicKey, v.ui.panicUrl, v.ui.theme], ['docs', 'Escape', 'https://classroom.test/', 'dark']);
+  assert.deepEqual([v.ui.cloak, v.ui.panicKey, v.ui.panicUrl], ['docs', 'Escape', 'https://classroom.test/']);
+  assert.equal(Object.hasOwn(v.ui, 'theme'), false, 'an older server theme setting is ignored');
   assert.equal(v.pool.echo, '', 'emptied: that test is skipped');
   assert.deepEqual([v.dns.mode, v.dns.strategy], ['exit', 'split']);
   cfg.patch({ spoof: { languages: '', timezone: 'Mars/Olympus' } });
@@ -717,7 +721,7 @@ test('identities: voices, battery, plugins and devices are those of an ordinary 
   );
 });
 
-test('canary pages and quick links: syntax', () => {
+test('canary pages: syntax', () => {
   assert.deepEqual(c.parseCanary('http://a.test/ok.txt success'), { url: 'http://a.test/ok.txt', expect: 'success' });
   assert.deepEqual(c.parseCanary('  http://a.test/x   <b>two  words</b> '), { url: 'http://a.test/x', expect: '<b>two  words</b>' });
   for (const bad of [
@@ -729,18 +733,6 @@ test('canary pages and quick links: syntax', () => {
     'http://a.test/x ' + 'y'.repeat(600),
   ])
     assert.equal(c.parseCanary(bad), null, bad.slice(0, 40));
-
-  assert.deepEqual(c.parseLink('Wikipedia https://www.wikipedia.org/'), { name: 'Wikipedia', url: 'https://www.wikipedia.org/' });
-  assert.deepEqual(c.parseLink('My  favourite site http://a.test/x?y=1'), { name: 'My  favourite site', url: 'http://a.test/x?y=1' });
-  assert.deepEqual(
-    c.parseLink('www.example.org'),
-    { name: 'example.org', url: 'https://www.example.org/' },
-    'just an address: named after its host'
-  );
-  assert.deepEqual(c.parseLink('News example.org/world'), { name: 'News', url: 'https://example.org/world' });
-  assert.equal(c.parseLink('N'.repeat(60) + ' https://a.test/').name.length, 40);
-  for (const bad of ['', 'javascript:alert(1)', 'Name javascript:alert(1)', 'nodot', 'Name', 'x'.repeat(500)])
-    assert.equal(c.parseLink(bad), null, bad.slice(0, 40));
 });
 
 test('what the settings panel is offered', () => {

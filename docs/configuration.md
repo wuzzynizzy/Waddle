@@ -269,60 +269,43 @@ that refusing them does not break pages. Anything else can be blocked with a rou
 
 | Setting         | Panel        | Values                                                                | Default      | Meaning                                                       |
 | --------------- | ------------ | --------------------------------------------------------------------- | ------------ | ------------------------------------------------------------- |
-| `ui.theme`      | Theme        | `auto`, `light`, `dark`                                               | `auto`       | Waddle's own look. `auto` follows your system.                |
 | `ui.search`     | Search       | an address with `%s`                                                  | DuckDuckGo   | Where text that is not an address is sent. `%s` is the query. |
-| `ui.links`      | Quick links  | one per line, `Name https://address`                                  | 4 links      | The tiles on the start page.                                  |
 | `ui.cloak`      | Tab disguise | `none`, `docs`, `classroom`, `drive`, `notes`, `calculator`, `custom` | `none`       | Give the browser tab another title and icon.                  |
 | `ui.cloakTitle` | Title        | text (with `custom`)                                                  |              | The title to show.                                            |
 | `ui.panicKey`   | Panic key    | one key, empty for off                                                | off          | One press and the tab goes somewhere else.                    |
 | `ui.panicUrl`   | Goes to      | an address, empty for a blank page                                    | a blank page | Where the panic key goes.                                     |
 
-Search presets: DuckDuckGo, Brave, Startpage, Mojeek, Google and Bing, or any address of your own.
+Search presets: DuckDuckGo, Brave, Startpage, Mojeek, Google and Bing, or any address of your own. Theme
+is a browser-local preference, not a server setting; see [Browser-local features](#browser-local-features).
 
 **Blank-address tab** opens Waddle in a tab whose address reads `about:blank`. **Reset everything**
 restores every default, including the source list.
 
 ## Browser-local features
 
-The library and presentation preferences below live in this browser's `localStorage`; they are not
-part of `data/config.json` and are not sent to Waddle's server. **Reset frontend settings** resets
-only the appearance and start-page preferences. **New identity** clears local history and closes
-extra Waddle tabs, while preserving bookmarks, saved addresses and frontend preferences. Saved pages
-are addresses for later, not offline copies.
+The library and appearance preferences stay in this browser; they are not part of `data/config.json`
+and are not sent to Waddle's server. Preferences and library records use `localStorage`. **New identity**
+clears local history and closes extra Waddle tabs, while keeping bookmarks, saved addresses and appearance
+preferences. Saved pages are addresses for later, not offline copies. Waddle does not provide backup,
+restore or export controls; clearing this browser's site data removes its local library and preferences.
 
-- **Tabs:** up to 16 open Waddle tabs, with separate current addresses and back/forward history.
-  The state is restored when the shell reloads.
-- **Library:** bookmarks (with folders, JSON export and browser-bookmark HTML or Waddle JSON import),
-  a searchable history, and a Saved read-later list. The toolbar bookmark icon toggles the current bookmark.
-- **Appearance:** accent (`orange`, `blue`, `violet`, `teal`, `rose`), density (`comfortable`,
-  `compact`, `spacious`), text size (`small`, `normal`, `large`) and tab-strip position (`top`,
-  `bottom`).
-- **Start page:** show or hide quick links, local recommendations and status chips. Recommendations
-  and typing suggestions match this browser's open tabs, bookmarks, saved addresses and history.
-- **External suggestions:** DuckDuckGo suggestions are off by default. When enabled, after a pause
-  while typing at least three characters, the query is sent to DuckDuckGo through the current proxy
-  exit. The selected search engine still receives a query when you submit a search.
+- **Tabs:** up to 16 open Waddle tabs, with separate current addresses and back/forward history. The
+  state is restored when the shell reloads.
+- **Library:** bookmarks with folders, browser-bookmark HTML import, searchable history and a Saved
+  read-later list. There is no bookmark or library export.
+- **Appearance:** seven themes (`auto`, `light`, `dark`, `midnight`, `forest`, `rose`, `sand`), ten
+  accent presets or a custom colour, density (`comfortable`, `compact`, `spacious`), text size and
+  tab-strip position. These choices are local to the browser.
+- **Suggestions:** address matches use this browser's open tabs, bookmarks, saved addresses and history.
+  DuckDuckGo web suggestions are off by default. When enabled, after a pause while typing at least
+  three characters, the query is sent through the current proxy exit. The selected search engine still
+  receives a query when you submit a search.
 - **Keyboard shortcuts:** `Ctrl/⌘+T` new tab, `Ctrl/⌘+W` close tab, `Ctrl/⌘+L` address bar,
-  `Ctrl/⌘+Shift+I` Inspect, `Ctrl/⌘+D` bookmark, and `Alt+Left/Right` back or forward. The panic
-  key remains configurable as `ui.panicKey` in the server settings above.
+  `Ctrl/⌘+Shift+I` Inspect, `Ctrl/⌘+D` bookmark, and `Alt+Left/Right` back or forward. The panic key
+  remains configurable as `ui.panicKey` in the server settings above.
 
 Waddle's single-origin design means a malicious proxied page may be able to reach browser-local data;
 see [Security](security.md#one-origin-for-everything) before using the library for sensitive records.
-
-## Backup and migration
-
-Click **Save checkpoint** on the homepage to download a full, versioned JSON backup immediately.
-The same **Export full backup** action is available under **Settings → General → Backup & migration**;
-use that panel's **Restore backup** action to import a file on another Waddle.
-
-The backup includes server configuration and source lists, this browser's bookmarks, saved addresses,
-history, tabs, appearance preferences and theme. Restore replaces the destination server configuration
-and local browser state after validating and sanitizing the imported data. The browser-side import
-rolls back if storage is full or the server refuses the restore.
-
-Session cookies, the in-memory request log, proxy pool contents, resolver cache and session identity
-are intentionally excluded. The file may contain private history and configuration, so keep it
-private. Backups are user-downloaded; Waddle does not write a copy to its data directory.
 
 ## Files
 

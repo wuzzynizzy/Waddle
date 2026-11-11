@@ -4,13 +4,12 @@
   var LIBRARY_KEY = 'waddle.library.v1';
   var PREFS_KEY = 'waddle.frontend.v1';
   var DEFAULTS = {
+    theme: 'auto',
     accent: 'orange',
+    accentCustom: '#ff8a1f',
     density: 'comfortable',
     textSize: 'normal',
     tabPosition: 'top',
-    showLinks: true,
-    showRecommendations: true,
-    showStatus: true,
     externalSuggestions: false,
   };
   var COLORS = {
@@ -19,7 +18,13 @@
     violet: '#805ad5',
     teal: '#0f9b8e',
     rose: '#df5478',
+    indigo: '#5969e8',
+    emerald: '#13866c',
+    berry: '#b84f91',
+    gold: '#c58213',
+    slate: '#58677b',
   };
+  var THEMES = ['auto', 'light', 'dark', 'midnight', 'forest', 'rose', 'sand'];
   function id() {
     try {
       if (w.crypto && w.crypto.randomUUID) return w.crypto.randomUUID();
@@ -97,7 +102,9 @@
     Object.keys(DEFAULTS).forEach(function (k) {
       if (typeof p[k] === typeof DEFAULTS[k]) out[k] = p[k];
     });
-    if (!COLORS[out.accent]) out.accent = DEFAULTS.accent;
+    if (THEMES.indexOf(out.theme) < 0) out.theme = DEFAULTS.theme;
+    if (out.accent !== 'custom' && !COLORS[out.accent] && !/^#[0-9a-f]{6}$/i.test(out.accent)) out.accent = DEFAULTS.accent;
+    if (!/^#[0-9a-f]{6}$/i.test(out.accentCustom)) out.accentCustom = DEFAULTS.accentCustom;
     if (['comfortable', 'compact', 'spacious'].indexOf(out.density) < 0) out.density = DEFAULTS.density;
     if (['small', 'normal', 'large'].indexOf(out.textSize) < 0) out.textSize = DEFAULTS.textSize;
     if (out.tabPosition !== 'bottom') out.tabPosition = 'top';
@@ -110,12 +117,23 @@
     } catch (e) {
       value = {};
     }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) value = {};
+    // Older Waddle versions kept the theme in a separate browser-local key.
+    if (!Object.prototype.hasOwnProperty.call(value, 'theme')) {
+      try {
+        var legacyTheme = w.localStorage.getItem('waddle.theme');
+        if (THEMES.indexOf(legacyTheme) >= 0) value.theme = legacyTheme;
+      } catch (e) {
+        /* storage unavailable */
+      }
+    }
     return cleanPreferences(value);
   }
   function savePrefs(patch) {
-    var next = Object.assign(prefs(), patch || {});
+    var next = cleanPreferences(Object.assign(prefs(), patch || {}));
     try {
       w.localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      w.localStorage.removeItem('waddle.theme');
     } catch (e) {
       /* storage disabled or full */
     }
@@ -279,52 +297,6 @@
     });
     return count;
   }
-  function exportBookmarks() {
-    var data = base();
-    return {
-      format: 'waddle-bookmarks',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      folders: data.folders,
-      bookmarks: data.bookmarks,
-    };
-  }
-  function exportState() {
-    var theme = '';
-    try {
-      theme = w.localStorage.getItem('waddle.theme') || '';
-    } catch (e) {
-      /* storage unavailable */
-    }
-    return { library: base(), preferences: prefs(), theme: theme };
-  }
-  function importState(snapshot) {
-    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false;
-    var library = cleanLibrary(snapshot.library);
-    var preferences = cleanPreferences(snapshot.preferences);
-    var keys = [LIBRARY_KEY, PREFS_KEY, 'waddle.theme'];
-    var before = {};
-    try {
-      keys.forEach(function (key) {
-        before[key] = w.localStorage.getItem(key);
-      });
-      w.localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
-      w.localStorage.setItem(PREFS_KEY, JSON.stringify(preferences));
-      if (snapshot.theme === 'light' || snapshot.theme === 'dark') w.localStorage.setItem('waddle.theme', snapshot.theme);
-      else w.localStorage.removeItem('waddle.theme');
-      return true;
-    } catch (e) {
-      keys.forEach(function (key) {
-        try {
-          if (before[key] == null) w.localStorage.removeItem(key);
-          else w.localStorage.setItem(key, before[key]);
-        } catch (ignored) {
-          /* best effort rollback */
-        }
-      });
-      return false;
-    }
-  }
   w.WaddleLocal = {
     cleanUrl: cleanUrl,
     get: base,
@@ -340,9 +312,6 @@
     clearHistory: clearHistory,
     suggestions: suggestions,
     importBookmarks: importBookmarks,
-    exportBookmarks: exportBookmarks,
-    exportState: exportState,
-    importState: importState,
     keys: { library: LIBRARY_KEY, preferences: PREFS_KEY },
     accentColors: COLORS,
   };

@@ -71,20 +71,12 @@ disk use has been benchmarked on a target host, so treat these defaults as start
 512 MB RAM or 1 GB storage guarantee. Waddle saves settings and live proxy/resolver state as JSON in
 `data`; raw source archives, page data and request logs are not persisted.
 
-## Backup and migration
+## Browser data and persistence
 
-Click **Save checkpoint** on the homepage to download the full versioned JSON backup directly. The
-same export is available as **Export full backup** in **Settings → General → Backup & migration**.
-The file includes server settings and sources plus this browser's bookmarks, saved addresses, history,
-tabs and appearance preferences. It excludes session cookies, request logs, live proxies, DNS cache
-and private server state. Keep the backup private because it may contain browsing history and custom
-sources.
-
-To migrate, choose **Restore backup** in Settings on the destination Waddle. The importer validates
-the format and sanitizes settings and URLs. It replaces the destination's server settings and this
-browser's local library, tabs and preferences. If browser storage is full or the server rejects the
-restore, local browser data is rolled back on a best-effort basis. See [the API description](api.md#server-settings-backup)
-for server-only backups.
+Waddle has no built-in backup, restore or export feature. Bookmarks, saved addresses, history, open-tab
+state and appearance preferences stay in the current browser. Clearing that browser's site data removes
+them. Server settings and proxy/resolver state still persist under the `data` directory; manage those
+files outside Waddle if you need to preserve them.
 
 ## Optional environment variables
 
