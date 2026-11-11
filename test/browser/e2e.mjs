@@ -380,6 +380,7 @@ const phone = async (name) => {
       bar: shown.every((n) => n.getBoundingClientRect().left >= 0 && n.getBoundingClientRect().right <= innerWidth + 0.5),
       tabs: document.getElementById('drawer').hidden || tabs.scrollWidth <= tabs.clientWidth,
       address: Math.round(document.getElementById('nav').getBoundingClientRect().width),
+      startHeight: parseFloat(getComputedStyle(document.getElementById('start')).height),
     };
   });
   await page.setViewport({ width: 1280, height: 800 });
@@ -445,13 +446,38 @@ try {
       (await page.$eval('#nav', (n) => getComputedStyle(n).display === 'none')) &&
       (await page.$eval('#landing', (n) => !/#checkpoint|#quickVisit|#homeSaved|#homePicks|#chips/.test(n.innerHTML))) &&
       (await page.$eval('body', (n) => !/Meet Waddle|Take the scenic route|Save checkpoint/i.test(n.textContent))) &&
-      !!(await page.$('a[href="https://github.com/wuzzynizzy/Waddle"]')) &&
+      !(await page.$('#start kbd')) &&
+      (await page.$eval('a[href="https://github.com/wuzzynizzy/Waddle"]', (n) => n.textContent.trim())) === 'Source on GitHub' &&
       !!(await page.$('a[href$="/LICENSE"]')),
     await page.$eval('#route span', (n) => n.textContent)
   );
+  const homeOffset = await page.$eval('.home-main', (n) => {
+    const home = n.getBoundingClientRect();
+    const stage = document.getElementById('stage').getBoundingClientRect();
+    return Math.round((home.top + home.bottom - stage.top - stage.bottom) / 2);
+  });
+  check('start content is centered in the page area', Math.abs(homeOffset) <= 2, homeOffset);
+  const plusStyle = await page.$eval('#newTab', (n) => {
+    const style = getComputedStyle(n);
+    return { background: style.backgroundColor, border: style.borderTopWidth };
+  });
+  check('new-tab plus has no button background', plusStyle.background === 'rgba(0, 0, 0, 0)' && plusStyle.border === '0px', plusStyle);
+  const searchStyle = await page.$eval('#start', (n) => {
+    const style = getComputedStyle(n);
+    return { height: parseFloat(style.height), background: style.backgroundColor, shadow: style.boxShadow };
+  });
+  check(
+    'start textbox is a compact outline without fill or glow',
+    searchStyle.height === 46 && searchStyle.background === 'rgba(0, 0, 0, 0)' && searchStyle.shadow === 'none',
+    searchStyle
+  );
   await shot('landing');
   const small = await phone('phone-landing');
-  check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
+  check(
+    'at a phone’s width the start page fits and the search stays compact',
+    !small.sideways && small.bar && small.startHeight === 44,
+    small
+  );
   await page.type('#q', SITE + '/');
   await page.keyboard.press('Enter');
   let f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);

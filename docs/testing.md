@@ -5,7 +5,7 @@ browser.
 
 ```sh
 npm test              # unit and integration: 191 tests
-npm run test:browser  # end to end in Chrome: 134 checks
+npm run test:browser  # end to end in Chrome: 137 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
