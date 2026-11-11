@@ -361,8 +361,14 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const shot = async (name, selector) => {
   if (!SHOTS) return;
   const file = path.join(SHOTS, name + '.png');
-  if (selector) await (await page.$(selector)).screenshot({ path: file });
-  else await page.screenshot({ path: file });
+  const toastWasHidden = await page.$eval('#toast', (n) => n.hidden).catch(() => true);
+  if (!toastWasHidden) await page.$eval('#toast', (n) => (n.hidden = true));
+  try {
+    if (selector) await (await page.$(selector)).screenshot({ path: file });
+    else await page.screenshot({ path: file });
+  } finally {
+    if (!toastWasHidden) await page.$eval('#toast', (n) => (n.hidden = false));
+  }
 };
 /** The view as it is, at a phone's width: a screenshot, and whether everything still fits the screen. */
 const phone = async (name) => {
@@ -558,6 +564,9 @@ try {
     chips
   );
   check('quick links shown', (await page.$$eval('#links .tile', (n) => n.length)) === 4);
+  await shot('landing');
+  const small = await phone('phone-landing');
+  check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
   const checkpointFile = await page.evaluate(async () => {
     const originalCreate = URL.createObjectURL;
     const originalClick = HTMLAnchorElement.prototype.click;
@@ -606,9 +615,6 @@ try {
       drawerHidden: await page.$eval('#drawer', (n) => n.hidden),
     }
   );
-  await shot('landing');
-  const small = await phone('phone-landing');
-  check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
   await page.type('#q', SITE + '/');
   await page.keyboard.press('Enter');
   let f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);

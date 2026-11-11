@@ -200,10 +200,11 @@ the settings in a broken state.
 `POST /-/api/backup` replaces the server configuration. The body must include
 `{"format":"waddle-backup","version":1,"config":{...}}`; settings are validated against the
 current version's schema and defaults fill omitted keys. The request limit is 10 MB. This endpoint
-handles server configuration only. **Settings → General → Backup & migration** also adds browser-local
-bookmarks, saved addresses, history, open tabs and appearance preferences to a portable file, and
-restores those locally in the browser. Neither path includes session cookies, the request log or the
-live proxy/DNS caches; see [configuration.md](configuration.md#backup-and-migration).
+handles server configuration only. The homepage's **Save checkpoint** action calls this export,
+adds browser-local bookmarks, saved addresses, history, open tabs and appearance preferences, then
+downloads a portable file directly. **Settings → General → Backup & migration** offers the same full
+export plus the browser-side restore action. Neither path includes session cookies, the request log or
+the live proxy/DNS caches; see [configuration.md](configuration.md#backup-and-migration).
 
 ## Pool
 

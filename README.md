@@ -128,8 +128,9 @@ panic key are listed in Settings → General.
 
 **A portable checkpoint.** Click **Save checkpoint** on the homepage to download one versioned file
 with server settings and sources, browser-local bookmarks, saved pages, history, tabs and appearance
-preferences. Restore it on another Waddle. Session cookies, request logs, live proxies and DNS cache
-are deliberately excluded. Keep the file private because it can contain browsing history.
+preferences. To restore it, open Settings → General → Backup & migration on the destination Waddle.
+Session cookies, request logs, live proxies and DNS cache are deliberately excluded. Keep the file
+private because it can contain browsing history.
 
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
 what to do. If the server itself cannot be reached, the tab shows a "Reconnecting" screen that
@@ -137,8 +138,10 @@ comes back by itself, never an unstyled error page from the host in front of it.
 
 ## The interface
 
-The start page centers one search/address box. Local recommendations and quick links sit beneath it;
-status chips show the pool, route, DNS and identity, and open the matching settings.
+The start page centers one search/address box, with **Save checkpoint** above it to download a
+portable backup directly. Local recommendations and quick links sit beneath the search; status chips
+show the pool, route, DNS and identity, and open the matching settings. Waddle's hand-authored mascot
+waves, blinks and waddles while respecting reduced-motion preferences.
 
 ![Start page](docs/img/landing.png)
 
@@ -197,7 +200,7 @@ identity. A service worker catches whatever is left. More in
 
 ```sh
 npm test              # 191 unit and integration tests, no network needed
-npm run test:browser  # 144 browser checks in a real Chrome (see docs/testing.md)
+npm run test:browser  # 152 browser checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
@@ -245,3 +248,4 @@ Waddle listens on localhost by default. Set a strong password and add HTTPS befo
 - [HTTP API](docs/api.md): what the settings panel talks to, including versioned backups
 - [Testing](docs/testing.md): what is covered, measured timings, how to run the browser test
 - [Security](docs/security.md): what Waddle protects, what it does not
+- [Agent notes](agents.md): repository map, safe-change invariants and verification commands
