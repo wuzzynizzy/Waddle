@@ -248,4 +248,4 @@ Waddle listens on localhost by default. Set a strong password and add HTTPS befo
 - [HTTP API](docs/api.md): what the settings panel talks to, including versioned backups
 - [Testing](docs/testing.md): what is covered, measured timings, how to run the browser test
 - [Security](docs/security.md): what Waddle protects, what it does not
-- [Agent notes](AGENTS.md): repository map, safe-change invariants and verification commands
+- [Agent notes](agents.md): repository map, safe-change invariants and verification commands
