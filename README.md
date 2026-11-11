@@ -126,11 +126,10 @@ and show or hide start-page links, recommendations and status chips. These prefe
 only in this browser and do not change Waddle's server configuration. Keyboard shortcuts and the
 panic key are listed in Settings → General.
 
-**A portable checkpoint.** The homepage's **PERFECTED** checkpoint opens Settings → General → Backup
-& migration. Export one versioned file with server settings and sources, browser-local bookmarks,
-saved pages, history, tabs and appearance preferences; restore it on another Waddle. Session cookies,
-request logs, live proxies and DNS cache are deliberately excluded. Keep the file private because it
-can contain browsing history.
+**A portable checkpoint.** Click **Save checkpoint** on the homepage to download one versioned file
+with server settings and sources, browser-local bookmarks, saved pages, history, tabs and appearance
+preferences. Restore it on another Waddle. Session cookies, request logs, live proxies and DNS cache
+are deliberately excluded. Keep the file private because it can contain browsing history.
 
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
 what to do. If the server itself cannot be reached, the tab shows a "Reconnecting" screen that

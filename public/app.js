@@ -3455,9 +3455,7 @@
     if (d.hidden) open();
     else d.hidden = true;
   });
-  $('#checkpoint').addEventListener('click', function () {
-    open('general');
-  });
+  $('#checkpoint').addEventListener('click', exportMigrationBackup);
   $('#route').addEventListener('click', function () {
     open(document.body.classList.contains('browsing') ? 'route' : 'proxies');
   });

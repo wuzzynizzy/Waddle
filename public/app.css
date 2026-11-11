@@ -352,9 +352,7 @@ body.browsing #fit {
   flex-direction: column;
   align-items: center;
   padding: clamp(32px, 10vh, 104px) 24px 40px;
-  background:
-    radial-gradient(ellipse at 50% 20%, rgb(89 191 171 / 10%), transparent 37%),
-    radial-gradient(ellipse at 52% 58%, rgb(255 138 31 / 4%), transparent 55%), var(--bg);
+  background: var(--bg);
 }
 body.browsing #landing {
   display: none;
@@ -367,74 +365,115 @@ body.browsing #landing {
   display: grid;
   place-items: center;
 }
-.hero::before,
-.hero::after {
-  content: '';
-  position: absolute;
-  inset: 8px;
-  border: 1px solid rgb(74 171 157 / 15%);
-  border-radius: 50%;
-  animation: halo 7s ease-in-out infinite;
-}
-.hero::after {
-  inset: -8px;
-  border-color: rgb(242 123 43 / 10%);
-  animation-delay: -3.5s;
-  animation-direction: reverse;
-}
 .hero svg {
   position: relative;
-  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
   filter: drop-shadow(0 9px 12px rgb(27 47 62 / 8%));
-  animation: home-float 4.8s ease-in-out infinite;
-}
-@keyframes halo {
-  0%,
-  100% {
-    transform: scale(0.97);
-    opacity: 0.65;
-  }
-  50% {
-    transform: scale(1.04);
-    opacity: 1;
-  }
+  animation: home-float 5.2s ease-in-out infinite;
 }
 @keyframes home-float {
   0%,
   100% {
-    transform: translateY(0) rotate(-1deg);
+    transform: translateY(0) rotate(-0.5deg);
   }
   50% {
-    transform: translateY(-5px) rotate(1deg);
+    transform: translateY(-4px) rotate(0.5deg);
+  }
+}
+.home-torso {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: home-breathe 3.4s ease-in-out infinite;
+}
+@keyframes home-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-1px) scaleY(1.012);
   }
 }
 .hero .wave {
-  transform-origin: 148px 92px;
-  animation: wave 2.6s ease-in-out 0.4s 2;
+  transform-box: fill-box;
+  transform-origin: 10% 88%;
+  animation: home-wave 3.6s ease-in-out infinite;
 }
-@keyframes wave {
+@keyframes home-wave {
+  0%,
+  65%,
+  100% {
+    transform: rotate(0);
+  }
+  70% {
+    transform: rotate(-14deg);
+  }
+  75% {
+    transform: rotate(7deg);
+  }
+  80% {
+    transform: rotate(-11deg);
+  }
+  85% {
+    transform: rotate(4deg);
+  }
+}
+.home-wing-left {
+  transform-box: fill-box;
+  transform-origin: 92% 16%;
+  animation: home-wing-rest 3.6s ease-in-out infinite;
+}
+@keyframes home-wing-rest {
   0%,
   100% {
     transform: rotate(0);
   }
-  25% {
-    transform: rotate(-12deg);
+  50% {
+    transform: rotate(-2deg);
+  }
+}
+.home-foot {
+  transform-box: fill-box;
+  transform-origin: center 22%;
+  animation: home-step 1.2s ease-in-out infinite;
+}
+.home-foot-right {
+  animation-delay: -0.6s;
+}
+@keyframes home-step {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-4deg);
   }
   50% {
-    transform: rotate(6deg);
+    transform: translateY(2px) rotate(5deg);
   }
-  75% {
-    transform: rotate(-8deg);
+}
+.home-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: home-blink 5.4s linear infinite;
+}
+@keyframes home-blink {
+  0%,
+  46%,
+  48%,
+  100% {
+    transform: scaleY(1);
+  }
+  47% {
+    transform: scaleY(0.04);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hero .wave,
   .hero svg,
-  .hero::before,
-  .hero::after,
+  .hero .wave,
+  .home-wing-left,
+  .home-torso,
+  .home-eyes,
+  .home-foot,
   body.loading #progress::after,
   .dot.busy {
     animation: none;
@@ -498,7 +537,7 @@ body.browsing #landing {
 .checkpoint-copy b {
   color: var(--text);
   font-size: 11px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.02em;
 }
 .checkpoint-copy small {
   overflow: hidden;
@@ -506,11 +545,6 @@ body.browsing #landing {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.checkpoint-arrow {
-  flex: none;
-  color: var(--accent);
-  font-size: 17px;
 }
 #takeTour {
   display: inline-flex;

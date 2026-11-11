@@ -438,6 +438,51 @@ try {
     'the Waddle tour opens with its hand-drawn penguin artwork',
     (await tourPage.title()).includes('Waddle') && (await tourPage.$('.scene-art')) !== null
   );
+  const tourMascot = await tourPage.$eval('.scene-art', (svg) => ({
+    circles: svg.querySelectorAll('circle').length,
+    orbitDecorations: svg.querySelectorAll('.orbit-node, .tiny-label, .snow-stars').length,
+    eyes: getComputedStyle(svg.querySelector('.penguin-eyes')).animationName,
+    wing: getComputedStyle(svg.querySelector('.wing-wave')).animationName,
+    foot: getComputedStyle(svg.querySelector('.penguin-foot')).animationName,
+    scarf: getComputedStyle(svg.querySelector('.scarf-tail')).animationName,
+  }));
+  check(
+    'the tour keeps only Waddle’s face circles and removes decorative orbits',
+    tourMascot.circles === 4 && tourMascot.orbitDecorations === 0,
+    tourMascot
+  );
+  check(
+    'Waddle animates his eyes, wings, feet and scarf independently',
+    tourMascot.eyes === 'penguin-blink' &&
+      tourMascot.wing === 'hello-wave' &&
+      tourMascot.foot === 'foot-step' &&
+      tourMascot.scarf === 'scarf-sway',
+    tourMascot
+  );
+  const supportingMascots = await tourPage.evaluate(() => ({
+    miniWing: getComputedStyle(document.querySelector('.mini-wing-wave')).animationName,
+    miniEyes: getComputedStyle(document.querySelector('.mini-eyes')).animationName,
+    closingWing: getComputedStyle(document.querySelector('.closing-wing-wave')).animationName,
+    closingEyes: getComputedStyle(document.querySelector('.closing-eyes')).animationName,
+    closingFoot: getComputedStyle(document.querySelector('.closing-foot')).animationName,
+    closingCircles: document.querySelectorAll('.closing-art svg circle').length,
+    closingRing: getComputedStyle(document.querySelector('.closing-section'), '::before').content !== 'none',
+  }));
+  check(
+    'the smaller Waddles also wave, blink and step',
+    supportingMascots.miniWing === 'hello-wave' &&
+      supportingMascots.miniEyes === 'penguin-blink' &&
+      supportingMascots.closingWing === 'hello-wave' &&
+      supportingMascots.closingEyes === 'penguin-blink' &&
+      supportingMascots.closingFoot === 'foot-step',
+    supportingMascots
+  );
+  check(
+    'the tour closing mascot has no decorative orbit circles',
+    supportingMascots.closingCircles === 2 && !supportingMascots.closingRing,
+    supportingMascots
+  );
+  check('the old promotional wording is absent from the tour', !(await tourPage.$eval('body', (n) => /perfected/i.test(n.textContent))));
   check(
     'tour includes direct self-host installers and the GitHub source',
     (await tourPage.$eval('#unixCode', (n) => /waddle\.wisp\.uno\/install\.sh/.test(n.textContent))) &&
@@ -482,6 +527,24 @@ try {
   // ---- shell
   await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
   check('landing renders', (await page.$eval('#landing h1', (n) => n.textContent)) === 'Waddle');
+  const homeMascot = await page.$eval('.hero svg', (svg) => ({
+    circles: svg.querySelectorAll('circle').length,
+    rings: ['::before', '::after'].some((pseudo) => getComputedStyle(svg.parentElement, pseudo).content !== 'none'),
+    eyes: getComputedStyle(svg.querySelector('.home-eyes')).animationName,
+    wing: getComputedStyle(svg.querySelector('.wave')).animationName,
+    foot: getComputedStyle(svg.querySelector('.home-foot')).animationName,
+    torso: getComputedStyle(svg.querySelector('.home-torso')).animationName,
+  }));
+  check('the homepage mascot has no decorative rings', homeMascot.circles === 4 && !homeMascot.rings, homeMascot);
+  check(
+    'the homepage animates Waddle’s blinking, wave, feet and body',
+    homeMascot.eyes === 'home-blink' &&
+      homeMascot.wing === 'home-wave' &&
+      homeMascot.foot === 'home-step' &&
+      homeMascot.torso === 'home-breathe',
+    homeMascot
+  );
+  check('the old promotional wording is absent from the homepage', !(await page.$eval('body', (n) => /perfected/i.test(n.textContent))));
   await page.waitForFunction(() => document.querySelectorAll('#chips .pill').length >= 4, { timeout: 5000 });
   const chips = await page.$$eval('#chips .pill', (n) => n.map((x) => x.textContent));
   check(
@@ -495,14 +558,54 @@ try {
     chips
   );
   check('quick links shown', (await page.$$eval('#links .tile', (n) => n.length)) === 4);
-  await page.click('#checkpoint');
+  const checkpointFile = await page.evaluate(async () => {
+    const originalCreate = URL.createObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    let resolveText;
+    let filename = '';
+    const contents = new Promise((resolve) => {
+      resolveText = resolve;
+    });
+    URL.createObjectURL = function (blob) {
+      blob.text().then(resolveText);
+      return originalCreate.call(URL, blob);
+    };
+    HTMLAnchorElement.prototype.click = function () {
+      filename = this.download;
+      return originalClick.call(this);
+    };
+    try {
+      document.querySelector('#checkpoint').click();
+      const text = await contents;
+      return { filename: filename, text: text };
+    } finally {
+      URL.createObjectURL = originalCreate;
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+  const checkpointBackup = JSON.parse(checkpointFile.text);
   check(
-    'the homepage PERFECTED checkpoint opens its versioned backup controls',
-    !(await page.$eval('#drawer', (n) => n.hidden)) &&
-      (await page.$eval('#tabs button.on', (n) => n.textContent)) === 'General' &&
-      (await page.$eval('#panel', (n) => n.textContent)).includes('Backup & migration')
+    'the homepage checkpoint directly downloads a portable backup, without opening settings',
+    checkpointFile.filename.startsWith('waddle-backup-') &&
+      checkpointFile.filename.endsWith('.json') &&
+      checkpointBackup.format === 'waddle-backup' &&
+      checkpointBackup.version === 1 &&
+      checkpointBackup.config &&
+      checkpointBackup.browser &&
+      Array.isArray(checkpointBackup.tabs) &&
+      !('cookies' in checkpointBackup) &&
+      (await page.$eval('#drawer', (n) => n.hidden)),
+    {
+      filename: checkpointFile.filename,
+      format: checkpointBackup.format,
+      version: checkpointBackup.version,
+      hasConfig: !!checkpointBackup.config,
+      hasBrowser: !!checkpointBackup.browser,
+      hasTabs: Array.isArray(checkpointBackup.tabs),
+      hasCookies: 'cookies' in checkpointBackup,
+      drawerHidden: await page.$eval('#drawer', (n) => n.hidden),
+    }
   );
-  await page.click('#gear');
   await shot('landing');
   const small = await phone('phone-landing');
   check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
