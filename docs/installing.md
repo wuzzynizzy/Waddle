@@ -73,15 +73,17 @@ disk use has been benchmarked on a target host, so treat these defaults as start
 
 ## Backup and migration
 
-Open **Settings → General → Backup & migration** and choose **Export full backup**. The versioned JSON
-includes server settings and sources plus this browser's bookmarks, saved addresses, history, tabs and
-appearance preferences. It excludes session cookies, request logs, live proxies, DNS cache and private
-server state. Keep the backup private because it may contain browsing history and custom sources.
+Click **Save checkpoint** on the homepage to download the full versioned JSON backup directly. The
+same export is available as **Export full backup** in **Settings → General → Backup & migration**.
+The file includes server settings and sources plus this browser's bookmarks, saved addresses, history,
+tabs and appearance preferences. It excludes session cookies, request logs, live proxies, DNS cache
+and private server state. Keep the backup private because it may contain browsing history and custom
+sources.
 
-Choose **Restore backup** on another Waddle to migrate. The importer validates the format and
-sanitizes settings and URLs. It replaces the destination's server settings and this browser's local
-library, tabs and preferences. If browser storage is full or the server rejects the restore, local
-browser data is rolled back on a best-effort basis. See [the API description](api.md#server-settings-backup)
+To migrate, choose **Restore backup** in Settings on the destination Waddle. The importer validates
+the format and sanitizes settings and URLs. It replaces the destination's server settings and this
+browser's local library, tabs and preferences. If browser storage is full or the server rejects the
+restore, local browser data is rolled back on a best-effort basis. See [the API description](api.md#server-settings-backup)
 for server-only backups.
 
 ## Optional environment variables

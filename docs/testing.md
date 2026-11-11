@@ -5,7 +5,7 @@ browser.
 
 ```sh
 npm test              # unit and integration: 191 tests
-npm run test:browser  # end to end in Chrome: 144 checks
+npm run test:browser  # end to end in Chrome: 152 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
@@ -61,8 +61,11 @@ The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
 - Multiple browser tabs keep separate addresses and histories; `_blank` links open another Waddle
   tab. Bookmarks, folders, JSON/HTML import and export, saved addresses, searchable local history,
   and New identity cleanup are exercised in the browser.
-- Full versioned backups export server settings plus browser-local library/preferences/tabs, then
-  restore them while excluding session cookies.
+- The homepage's **Save checkpoint** action directly downloads a full versioned backup instead of
+  opening settings. Full backups include server settings plus browser-local library/preferences/tabs,
+  and restore while excluding session cookies.
+- The homepage and tour illustrations retain only Waddle's facial circles; browser checks verify that
+  the hand-authored mascots' eyes, wings, feet and scarf have independent animations.
 - The hand-authored SVG tour is driven in-browser: chain controls reach 16 hops, resolver strategy
   buttons update their explanation, the stack grows, platform tabs switch installers and the mobile
   menu keeps its accessibility state.

@@ -311,11 +311,14 @@ see [Security](security.md#one-origin-for-everything) before using the library f
 
 ## Backup and migration
 
-Open **Settings → General → Backup & migration** to export one versioned JSON backup or restore it
-on another Waddle. It includes server configuration and source lists, this browser's bookmarks,
-saved addresses, history, tabs, appearance preferences and theme. Restore replaces the destination
-server configuration and the local browser state after validating and sanitizing the imported data.
-The browser-side import rolls back if storage is full or the server refuses the restore.
+Click **Save checkpoint** on the homepage to download a full, versioned JSON backup immediately.
+The same **Export full backup** action is available under **Settings → General → Backup & migration**;
+use that panel's **Restore backup** action to import a file on another Waddle.
+
+The backup includes server configuration and source lists, this browser's bookmarks, saved addresses,
+history, tabs, appearance preferences and theme. Restore replaces the destination server configuration
+and local browser state after validating and sanitizing the imported data. The browser-side import
+rolls back if storage is full or the server refuses the restore.
 
 Session cookies, the in-memory request log, proxy pool contents, resolver cache and session identity
 are intentionally excluded. The file may contain private history and configuration, so keep it

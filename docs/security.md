@@ -193,6 +193,15 @@ each other without giving every site its own hostname, which a single address ca
 In practice: use Waddle for reading, not for accounts you care about, and do not browse a site you
 distrust in the same session as one you are signed into.
 
+## Portable backup files
+
+The homepage's **Save checkpoint** button downloads a versioned JSON file containing server settings
+and sources plus browser-local bookmarks, saved addresses, history, tabs and appearance preferences.
+It deliberately excludes session cookies, request logs, live proxies and the DNS cache, and Waddle
+does not keep a server-side copy. The file can still expose private browsing history and configuration
+to anyone who can read it; store and share it carefully. Restoring a backup replaces the destination's
+server settings and browser-local state after validation and a confirmation prompt.
+
 ## Cookies and sessions
 
 Each visitor gets a cookie jar on the server, identified by one `HttpOnly` cookie named `waddle`.
