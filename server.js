@@ -3,6 +3,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 const net = require('./lib/net');
@@ -15,6 +16,10 @@ const { PREFIX } = require('./lib/rewrite');
 const trackers = require('./lib/trackers');
 
 const PUBLIC = path.join(__dirname, 'public');
+const ROOT_ASSETS = {
+  'install.sh': path.join(__dirname, 'install.sh'),
+  'install.ps1': path.join(__dirname, 'install.ps1'),
+};
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -23,17 +28,37 @@ const TYPES = {
   '.png': 'image/png',
   '.json': 'application/json',
   '.woff2': 'font/woff2',
+  '.sh': 'text/plain; charset=utf-8',
+  '.ps1': 'text/plain; charset=utf-8',
 };
 const STATIC = {
   'app.js': 1,
   'local.js': 1,
   'app.css': 1,
+  'tour.css': 1,
+  'tour.js': 1,
   'client.js': 1,
   'sw.js': 1,
+  'tour.html': 1,
+  'install.sh': 1,
+  'install.ps1': 1,
   'icon.svg': 1,
   'fonts/geist.woff2': 1,
   'fonts/geist-mono.woff2': 1,
 };
+const PUBLIC_ROUTES = new Set([
+  '/tour',
+  '/tour/',
+  '/download',
+  '/install.sh',
+  '/install.ps1',
+  '/favicon.ico',
+  '/-/icon.svg',
+  '/-/tour.css',
+  '/-/tour.js',
+  '/-/fonts/geist.woff2',
+  '/-/fonts/geist-mono.woff2',
+]);
 
 function readJson(req, max = 1 << 20) {
   return new Promise((resolve, reject) => {
@@ -157,7 +182,7 @@ function createApp() {
   function asset(name) {
     let a = cache.get(name);
     if (!a || dev) {
-      const body = fs.readFileSync(path.join(PUBLIC, name));
+      const body = fs.readFileSync(ROOT_ASSETS[name] || path.join(PUBLIC, name));
       a = {
         body,
         type: TYPES[path.extname(name)] || 'application/octet-stream',
@@ -196,6 +221,8 @@ function createApp() {
     let body = a.body;
     if (name === 'index.html')
       body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('app.js').tag + asset('app.css').tag + asset('local.js').tag));
+    else if (name === 'tour.html')
+      body = Buffer.from(body.toString('utf8').replace(/\{\{v\}\}/g, asset('tour.css').tag + asset('tour.js').tag));
     res.setHeader('Content-Length', body.length);
     res.end(req.method === 'HEAD' ? undefined : body);
   }
@@ -230,6 +257,13 @@ function createApp() {
     if (req.headers['x-waddle'] !== '1') return json(res, 403, { error: 'forbidden' });
     const sess = session(req, res, proxy.isSecure(req));
     if (req.method === 'GET' && name === 'state') return json(res, 200, state(sess, req));
+    if (req.method === 'GET' && name === 'backup')
+      return json(res, 200, {
+        format: 'waddle-backup',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        config: config.value,
+      });
     if (req.method === 'GET' && name === 'inspect') {
       let target = null;
       try {
@@ -256,7 +290,7 @@ function createApp() {
     if (!/^application\/json/i.test(req.headers['content-type'] || '')) return json(res, 415, { error: 'json only' });
     let body;
     try {
-      body = await readJson(req);
+      body = await readJson(req, name === 'backup' ? 10 << 20 : 1 << 20);
     } catch (e) {
       if (e && e.code === 'ETOOBIG') {
         res.setHeader('Connection', 'close');
@@ -266,6 +300,22 @@ function createApp() {
     }
     if (!body || typeof body !== 'object') return json(res, 400, { error: 'bad json' });
 
+    if (name === 'backup') {
+      if (
+        body.format !== 'waddle-backup' ||
+        body.version !== 1 ||
+        !body.config ||
+        typeof body.config !== 'object' ||
+        Array.isArray(body.config)
+      )
+        return json(res, 400, { error: 'unsupported or invalid backup' });
+      try {
+        config.replace(body.config);
+      } catch {
+        return json(res, 400, { error: 'invalid configuration' });
+      }
+      return json(res, 200, state(sess, req));
+    }
     if (name === 'config') {
       if (body.reset === true) config.reset();
       else config.patch(body);
@@ -391,7 +441,8 @@ function createApp() {
       res.writeHead(204, { 'Cache-Control': 'no-store' });
       return res.end();
     } // health checks need no password
-    if (!allowed(req)) {
+    const pathOnly = url.split('?')[0];
+    if (!PUBLIC_ROUTES.has(pathOnly) && !allowed(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Waddle"', 'Content-Length': 0 });
       return res.end();
     }
@@ -461,6 +512,25 @@ function createApp() {
     if (pathname === '/' || pathname === '/index.html') {
       session(req, res, proxy.isSecure(req));
       return sendAsset(req, res, 'index.html', { 'Referrer-Policy': 'same-origin' });
+    }
+    if (pathname === '/tour' || pathname === '/tour/') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' });
+        return res.end();
+      }
+      return sendAsset(req, res, 'tour.html', { 'Referrer-Policy': 'no-referrer' });
+    }
+    if (pathname === '/download') {
+      res.writeHead(302, { Location: '/tour#self-host', 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    if (pathname === '/install.sh' || pathname === '/install.ps1') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' });
+        return res.end();
+      }
+      const filename = pathname.slice(1);
+      return sendAsset(req, res, filename, { 'Content-Disposition': 'attachment; filename="' + filename + '"' });
     }
     if (pathname === '/favicon.ico') return sendAsset(req, res, 'icon.svg');
     if (pathname === '/robots.txt') {
@@ -542,6 +612,28 @@ function createApp() {
   };
 }
 
+function openBrowser(url) {
+  let command;
+  let args;
+  if (process.platform === 'win32') {
+    command = 'cmd.exe';
+    args = ['/d', '/c', 'start', '', url];
+  } else if (process.platform === 'darwin') {
+    command = 'open';
+    args = [url];
+  } else {
+    command = 'xdg-open';
+    args = [url];
+  }
+  try {
+    const opener = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
+    opener.once('error', () => console.log('Open ' + url + ' in your browser.'));
+    opener.unref();
+  } catch {
+    console.log('Open ' + url + ' in your browser.');
+  }
+}
+
 if (require.main === module) {
   const app = createApp();
   const port = Number(process.env.PORT) || 8080;
@@ -552,7 +644,9 @@ if (require.main === module) {
       const local = /^(127\.|::1$)/.test(a.address);
       const everywhere = a.address === '0.0.0.0' || a.address === '::';
       const name = local || everywhere ? 'localhost' : a.family === 'IPv6' ? '[' + a.address + ']' : a.address;
-      console.log('Waddle is up on http://' + name + ':' + a.port + (everywhere ? ' (all network interfaces)' : ''));
+      const url = 'http://' + name + ':' + a.port;
+      console.log('Waddle is up on ' + url + (everywhere ? ' (all network interfaces)' : ''));
+      if (process.env.WADDLE_OPEN_BROWSER === '1') openBrowser(url);
       if (!local && !process.env.WADDLE_PASSWORD)
         console.log('No WADDLE_PASSWORD is set: anyone who can reach this port can browse through Waddle and change its settings.');
     },

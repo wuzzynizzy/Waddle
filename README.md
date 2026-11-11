@@ -7,29 +7,45 @@ instead of yours.
 Waddle never contacts a site directly. If no proxy is available, the page does not load and Waddle
 says why.
 
-No dependencies, no build step: `npm start`.
+No runtime dependencies or build step: the one-command installer starts Waddle and opens your
+browser. From a checkout, use `start-waddle.sh` or `start-waddle.cmd`. Node.js 20 or newer is required.
+
+The interactive product tour is served at `/tour` when Waddle is running ·
+[Install and self-host guide](docs/installing.md) · [Source on GitHub](https://github.com/wuzzynizzy/Waddle)
 
 ![A page opened through Waddle](docs/img/browsing.png)
 
 ## Quick start
 
+### macOS and Linux
+
 ```sh
-git clone https://github.com/wuzzynizzy/Waddle.git
-cd Waddle
-npm start
+curl -fsSL https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.sh | sh
 ```
 
-Open <http://localhost:8080>. Node 20 or newer is required; Waddle was developed and tested on Node 22.
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/wuzzynizzy/Waddle/main/install.ps1 | iex
+```
+
+Each command installs Waddle, starts it, and opens `http://localhost:8080` in your browser. Keep the
+terminal open; `Ctrl+C` stops the server. Node.js 20 or newer is required. For a source checkout,
+clone the repository and run `./start-waddle.sh` (or `start-waddle.cmd` on Windows). See
+[Install and run](docs/installing.md) for the few details you might need.
 
 Give it a minute on the first start. Waddle downloads its proxy lists and tests what they offer, and
 the chip on the start page counts the proxies that passed. Pages load once it shows at least one.
+The `/install.sh` and `/install.ps1` routes are implemented for the planned `waddle.wisp.uno` host,
+but that domain's DNS and deployment are not verified here; use the GitHub-hosted installers unless
+you have confirmed the public host is live.
 
 | Variable          | Default     | What it does                                                                   |
 | ----------------- | ----------- | ------------------------------------------------------------------------------ |
 | `PORT`            | `8080`      | Port to listen on.                                                             |
 | `HOST`            | `127.0.0.1` | Address to listen on. Use `0.0.0.0` to accept connections from other machines. |
 | `WADDLE_PASSWORD` | none        | Ask every visitor for this password (HTTP Basic, user `waddle`).               |
-| `WADDLE_DATA`     | `./data`    | Where settings and the proxy cache are kept.                                   |
+| `WADDLE_DATA`     | `./data`    | Where settings and the live proxy/resolver state are kept.                      |
 
 The rest are in [docs/configuration.md](docs/configuration.md). If you expose Waddle beyond your own
 machine, set a password and put it behind HTTPS: see [docs/security.md](docs/security.md).
@@ -64,7 +80,7 @@ Working proxies are tested again every few minutes, and one that fails real requ
 **Routing you control.**
 
 - A new exit per site, per request, or on a timer. One click for a new exit right now.
-- Chains of up to five proxies, where only the last one learns which site you asked for.
+- Chains of up to 16 proxies, where only the last one learns which site you asked for. Longer chains can be slower and need more live exits.
 - Exit country, entry country, protocol filter (HTTP, SOCKS4, SOCKS5), and per-site rules such as
   `example.com proxy US,DE hops=2` or `*.ads.example block`.
 - A page and everything on it leave from one exit, so a site does not see one visitor arriving from
@@ -73,9 +89,9 @@ Working proxies are tested again every few minutes, and one that fails real requ
 
 **Name lookups that stay out of sight.** By default the exit proxy looks names up, so no lookup for a
 site you visit leaves your machine. You can instead use encrypted DNS (DNS over HTTPS) resolvers,
-asked through the exit: 13 are built in, any other can be added, and Waddle can keep a tested list
-of public resolvers that promise no logs and no filtering. Ask them in order, race them, take turns,
-give each site its own resolver, or cross-check two against each other.
+asked through the exit: built-in choices plus custom resolvers, up to 64 manual entries, and Waddle
+can keep a tested list of public resolvers that promise no logs and no filtering. Ask them in order,
+race them, take turns, give each site its own resolver, or cross-check answers.
 
 **A different identity.** Twelve browser and system presets, a phone mode, or a new random identity
 per session, per site or on a timer. Language, time zone and location can follow the country of the
@@ -109,6 +125,11 @@ log is kept in memory for this Waddle session and is cleared by New identity.
 and show or hide start-page links, recommendations and status chips. These preferences are saved
 only in this browser and do not change Waddle's server configuration. Keyboard shortcuts and the
 panic key are listed in Settings → General.
+
+**A portable checkpoint.** Click **Save checkpoint** on the homepage to download one versioned file
+with server settings and sources, browser-local bookmarks, saved pages, history, tabs and appearance
+preferences. Restore it on another Waddle. Session cookies, request logs, live proxies and DNS cache
+are deliberately excluded. Keep the file private because it can contain browsing history.
 
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
 what to do. If the server itself cannot be reached, the tab shows a "Reconnecting" screen that
@@ -175,13 +196,21 @@ identity. A service worker catches whatever is left. More in
 ## Tests
 
 ```sh
-npm test              # 183 tests, about 30 seconds, no network needed
-npm run test:browser  # 132 checks in a real Chrome (see docs/testing.md)
+npm test              # 191 unit and integration tests, no network needed
+npm run test:browser  # 144 browser checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
 servers and repository hosts on the local machine, and measure response times as well as
 correctness. Details and measured figures are in [docs/testing.md](docs/testing.md).
+
+## Self-host and resource budget
+
+The platform installer fetches the source, starts Waddle and opens your browser; Node.js 20+ is all
+you need. The one-step launchers use the `small` profile and a 320 MB V8 heap limit. These are lighter
+defaults, not a guarantee of total RAM or disk use—neither has been benchmarked on a target host.
+Waddle listens on localhost by default. Set a strong password and add HTTPS before sharing it; see
+[Install and run](docs/installing.md).
 
 ## Limits worth knowing
 
@@ -209,8 +238,10 @@ correctness. Details and measured figures are in [docs/testing.md](docs/testing.
 
 ## Documentation
 
+- [Product tour](public/tour.html): interactive route and resolver demos, installers and migration
+- [Install and run](docs/installing.md): one-command startup, passwords, privacy and backups
 - [Architecture](docs/architecture.md): how a request travels, how the pool works
 - [Configuration](docs/configuration.md): environment variables and every setting
-- [HTTP API](docs/api.md): what the settings panel talks to
+- [HTTP API](docs/api.md): what the settings panel talks to, including versioned backups
 - [Testing](docs/testing.md): what is covered, measured timings, how to run the browser test
 - [Security](docs/security.md): what Waddle protects, what it does not

@@ -39,46 +39,49 @@
       return '';
     }
   }
-  function base() {
-    var v;
-    try {
-      v = JSON.parse(w.localStorage.getItem(LIBRARY_KEY) || 'null');
-    } catch (e) {
-      v = null;
-    }
-    if (!v || typeof v !== 'object') v = {};
-    var folders = Array.isArray(v.folders) ? v.folders : ['Unsorted'];
+  function cleanLibrary(value) {
+    var v = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     var names = [];
-    folders.forEach(function (name) {
+    (Array.isArray(v.folders) ? v.folders : ['Unsorted']).forEach(function (name) {
       name = String(name || '')
         .trim()
         .slice(0, 48);
       if (name && names.indexOf(name) < 0) names.push(name);
     });
     if (!names.length) names.push('Unsorted');
+    if (names.indexOf('Unsorted') < 0) names.unshift('Unsorted');
     function items(key, cap) {
       return (Array.isArray(v[key]) ? v[key] : [])
         .slice(0, cap)
         .map(function (x) {
           var url = cleanUrl(x && x.url);
           if (!url) return null;
+          var at = Number((x && (x.at || x.visited)) || Date.now());
           return {
             id: String((x && x.id) || id()).slice(0, 80),
             url: url,
             title: String((x && x.title) || url).slice(0, 240),
             folder: names.indexOf(String(x && x.folder)) >= 0 ? String(x.folder) : 'Unsorted',
-            at: Number((x && (x.at || x.visited)) || Date.now()),
+            at: Number.isFinite(at) ? at : Date.now(),
           };
         })
         .filter(Boolean);
     }
-    if (names.indexOf('Unsorted') < 0) names.unshift('Unsorted');
     return {
       folders: names,
       bookmarks: items('bookmarks', 1000),
       saved: items('saved', 500),
       history: items('history', 500),
     };
+  }
+  function base() {
+    var value;
+    try {
+      value = JSON.parse(w.localStorage.getItem(LIBRARY_KEY) || 'null');
+    } catch (e) {
+      value = null;
+    }
+    return cleanLibrary(value);
   }
   function write(data) {
     try {
@@ -88,13 +91,8 @@
       return false;
     }
   }
-  function prefs() {
-    var p = {};
-    try {
-      p = JSON.parse(w.localStorage.getItem(PREFS_KEY) || '{}') || {};
-    } catch (e) {
-      p = {};
-    }
+  function cleanPreferences(value) {
+    var p = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     var out = Object.assign({}, DEFAULTS);
     Object.keys(DEFAULTS).forEach(function (k) {
       if (typeof p[k] === typeof DEFAULTS[k]) out[k] = p[k];
@@ -104,6 +102,15 @@
     if (['small', 'normal', 'large'].indexOf(out.textSize) < 0) out.textSize = DEFAULTS.textSize;
     if (out.tabPosition !== 'bottom') out.tabPosition = 'top';
     return out;
+  }
+  function prefs() {
+    var value;
+    try {
+      value = JSON.parse(w.localStorage.getItem(PREFS_KEY) || '{}');
+    } catch (e) {
+      value = {};
+    }
+    return cleanPreferences(value);
   }
   function savePrefs(patch) {
     var next = Object.assign(prefs(), patch || {});
@@ -282,6 +289,42 @@
       bookmarks: data.bookmarks,
     };
   }
+  function exportState() {
+    var theme = '';
+    try {
+      theme = w.localStorage.getItem('waddle.theme') || '';
+    } catch (e) {
+      /* storage unavailable */
+    }
+    return { library: base(), preferences: prefs(), theme: theme };
+  }
+  function importState(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false;
+    var library = cleanLibrary(snapshot.library);
+    var preferences = cleanPreferences(snapshot.preferences);
+    var keys = [LIBRARY_KEY, PREFS_KEY, 'waddle.theme'];
+    var before = {};
+    try {
+      keys.forEach(function (key) {
+        before[key] = w.localStorage.getItem(key);
+      });
+      w.localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
+      w.localStorage.setItem(PREFS_KEY, JSON.stringify(preferences));
+      if (snapshot.theme === 'light' || snapshot.theme === 'dark') w.localStorage.setItem('waddle.theme', snapshot.theme);
+      else w.localStorage.removeItem('waddle.theme');
+      return true;
+    } catch (e) {
+      keys.forEach(function (key) {
+        try {
+          if (before[key] == null) w.localStorage.removeItem(key);
+          else w.localStorage.setItem(key, before[key]);
+        } catch (ignored) {
+          /* best effort rollback */
+        }
+      });
+      return false;
+    }
+  }
   w.WaddleLocal = {
     cleanUrl: cleanUrl,
     get: base,
@@ -298,6 +341,8 @@
     suggestions: suggestions,
     importBookmarks: importBookmarks,
     exportBookmarks: exportBookmarks,
+    exportState: exportState,
+    importState: importState,
     keys: { library: LIBRARY_KEY, preferences: PREFS_KEY },
     accentColors: COLORS,
   };

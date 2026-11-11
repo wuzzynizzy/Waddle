@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const c = require('../lib/config');
 
 test('defaults are complete and self-consistent', () => {
@@ -103,7 +104,7 @@ test('patch: bad values are clamped or ignored, never stored', () => {
     __proto__: { polluted: true },
   });
   const v = cfg.value;
-  assert.equal(v.route.hops, 5);
+  assert.equal(v.route.hops, 9);
   assert.equal(v.route.retries, 0);
   assert.equal(v.route.rotate, 'request');
   assert.equal(v.route.timeout, 3000);
@@ -112,7 +113,7 @@ test('patch: bad values are clamped or ignored, never stored', () => {
   assert.deepEqual(v.route.protocols, ['http']);
   assert.deepEqual(v.route.countries, ['US']);
   assert.deepEqual(v.route.entry, ['DE']);
-  assert.equal(v.pool.target, 500);
+  assert.equal(v.pool.target, 2000);
   assert.equal(v.pool.concurrency, 1);
   assert.equal(v.pool.on, true);
   assert.equal(v.pool.harvestMinutes, 5);
@@ -128,7 +129,7 @@ test('patch: bad values are clamped or ignored, never stored', () => {
   assert.equal(v.spoof.random, 'off');
   assert.equal(v.spoof.gpu, 'auto');
   assert.equal(v.dns.strategy, 'fallback');
-  assert.deepEqual([v.dns.keep, v.dns.parallel, v.dns.refreshHours], [20, 2, 1]);
+  assert.deepEqual([v.dns.keep, v.dns.parallel, v.dns.refreshHours], [99, 2, 1]);
   assert.deepEqual(v.dns.servers, [
     'https://cloudflare-dns.com/dns-query',
     'https://dns.example/dns-query',
@@ -212,7 +213,7 @@ test('routing rules: syntax', () => {
   ok('b.test proxy us,de hops=2', { pattern: 'b.test', via: 'proxy', countries: ['US', 'DE'], hops: 2 });
   ok('B.Test PROXY hops=2 US', { pattern: 'b.test', via: 'proxy', countries: ['US'], hops: 2 });
   ok('https://c.test/path block', { pattern: 'c.test', via: 'block', countries: [], hops: 0 });
-  ok('y.test proxy hops=7', { pattern: 'y.test', via: 'proxy', countries: [], hops: 5 });
+  ok('y.test proxy hops=7', { pattern: 'y.test', via: 'proxy', countries: [], hops: 7 });
   ok('* proxy hops=3', { pattern: '*', via: 'proxy', countries: [], hops: 3 });
   for (const bad of [
     '',
@@ -744,8 +745,10 @@ test('canary pages and quick links: syntax', () => {
 
 test('what the settings panel is offered', () => {
   const o = c.options;
-  assert.equal(o.maxHops, 5);
-  assert.equal(c.MAX_HOPS, 5);
+  assert.equal(o.maxHops, 16);
+  assert.equal(c.MAX_HOPS, 16);
+  assert.equal(o.maxDnsServers, 64);
+  assert.equal(o.maxSources, 2000);
   for (const s of o.systems) {
     assert.ok(s.label && ['desktop', 'phone', 'tablet'].includes(s.kind) && ['chromium', 'gecko', 'webkit'].includes(s.engine), s.id);
     assert.ok(s.gpus.length >= 1 && s.gpus.every((g) => typeof g === 'string' && g), s.id);
@@ -756,6 +759,49 @@ test('what the settings panel is offered', () => {
   assert.ok(o.networks.includes('4g'));
   assert.ok(Object.keys(c.DNS_BOOTSTRAP).length >= 8, 'the stock resolvers come with their addresses, so nobody is asked where they live');
   for (const [host, ip] of Object.entries(c.DNS_BOOTSTRAP)) assert.match(ip, /^\d+\.\d+\.\d+\.\d+$/, host);
+});
+
+test('resolver stacks, source lists and proxy chains have large validated limits', () => {
+  const cfg = new c.Config();
+  cfg.patch({
+    route: { hops: 99, rules: ['deep.example proxy hops=99'] },
+    dns: {
+      parallel: 99,
+      keep: 999,
+      servers: Array.from({ length: 70 }, (_, i) => 'https://resolver' + i + '.example/dns-query'),
+    },
+    pool: {
+      target: 5000,
+      concurrency: 900,
+      sources: Array.from({ length: 2010 }, (_, i) => ({ type: 'github', repo: 'owner' + i + '/proxy-list', on: true })),
+    },
+  });
+  assert.equal(cfg.value.route.hops, 16);
+  assert.equal(c.matchRule(cfg.value.route.rules, 'deep.example').hops, 16);
+  assert.equal(cfg.value.dns.parallel, 16);
+  assert.equal(cfg.value.dns.keep, 128);
+  assert.equal(cfg.value.dns.servers.length, 64);
+  assert.equal(cfg.value.pool.target, 2000);
+  assert.equal(cfg.value.pool.concurrency, 400);
+  assert.equal(cfg.value.pool.sources.length, 2000);
+  cfg.reset();
+});
+
+test('the small-server profile lowers background-work defaults', () => {
+  const run = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      "const c=require('./lib/config');const x=new c.Config();console.log(JSON.stringify({profile:c.options.profile,target:x.value.pool.target,concurrency:x.value.pool.concurrency,perSource:x.value.pool.perSource}));",
+    ],
+    {
+      cwd: path.join(__dirname, '..'),
+      encoding: 'utf8',
+      env: Object.assign({}, process.env, { WADDLE_PROFILE: 'small', WADDLE_DATA: path.join(c.DATA_DIR, 'small-profile') }),
+    }
+  );
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), { profile: 'small', target: 24, concurrency: 12, perSource: 2500 });
 });
 
 test('client hints match what Chrome really sends', () => {

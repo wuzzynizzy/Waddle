@@ -327,6 +327,9 @@ const browser = await puppeteer.launch({
 });
 const realUA = await browser.userAgent();
 const page = await browser.newPage();
+const tourPage = await browser.newPage();
+const tourErrors = [];
+tourPage.on('pageerror', (e) => tourErrors.push(String(e)));
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 const bad = [];
@@ -429,9 +432,119 @@ const canvasPrint = () => {
 };
 
 try {
+  // ---- illustrated product tour: route builder, resolver demo and installers
+  await tourPage.goto(BASE + '/tour', { waitUntil: 'networkidle0' });
+  check(
+    'the Waddle tour opens with its hand-drawn penguin artwork',
+    (await tourPage.title()).includes('Waddle') && (await tourPage.$('.scene-art')) !== null
+  );
+  const tourMascot = await tourPage.$eval('.scene-art', (svg) => ({
+    circles: svg.querySelectorAll('circle').length,
+    orbitDecorations: svg.querySelectorAll('.orbit-node, .tiny-label, .snow-stars').length,
+    eyes: getComputedStyle(svg.querySelector('.penguin-eyes')).animationName,
+    wing: getComputedStyle(svg.querySelector('.wing-wave')).animationName,
+    foot: getComputedStyle(svg.querySelector('.penguin-foot')).animationName,
+    scarf: getComputedStyle(svg.querySelector('.scarf-tail')).animationName,
+  }));
+  check(
+    'the tour keeps only Waddle’s face circles and removes decorative orbits',
+    tourMascot.circles === 4 && tourMascot.orbitDecorations === 0,
+    tourMascot
+  );
+  check(
+    'Waddle animates his eyes, wings, feet and scarf independently',
+    tourMascot.eyes === 'penguin-blink' &&
+      tourMascot.wing === 'hello-wave' &&
+      tourMascot.foot === 'foot-step' &&
+      tourMascot.scarf === 'scarf-sway',
+    tourMascot
+  );
+  const supportingMascots = await tourPage.evaluate(() => ({
+    miniWing: getComputedStyle(document.querySelector('.mini-wing-wave')).animationName,
+    miniEyes: getComputedStyle(document.querySelector('.mini-eyes')).animationName,
+    closingWing: getComputedStyle(document.querySelector('.closing-wing-wave')).animationName,
+    closingEyes: getComputedStyle(document.querySelector('.closing-eyes')).animationName,
+    closingFoot: getComputedStyle(document.querySelector('.closing-foot')).animationName,
+    closingCircles: document.querySelectorAll('.closing-art svg circle').length,
+    closingRing: getComputedStyle(document.querySelector('.closing-section'), '::before').content !== 'none',
+  }));
+  check(
+    'the smaller Waddles also wave, blink and step',
+    supportingMascots.miniWing === 'hello-wave' &&
+      supportingMascots.miniEyes === 'penguin-blink' &&
+      supportingMascots.closingWing === 'hello-wave' &&
+      supportingMascots.closingEyes === 'penguin-blink' &&
+      supportingMascots.closingFoot === 'foot-step',
+    supportingMascots
+  );
+  check(
+    'the tour closing mascot has no decorative orbit circles',
+    supportingMascots.closingCircles === 2 && !supportingMascots.closingRing,
+    supportingMascots
+  );
+  check('the old promotional wording is absent from the tour', !(await tourPage.$eval('body', (n) => /perfected/i.test(n.textContent))));
+  check(
+    'tour includes direct self-host installers and the GitHub source',
+    (await tourPage.$eval('#unixCode', (n) => /waddle\.wisp\.uno\/install\.sh/.test(n.textContent))) &&
+      (await tourPage.$eval('#windowsCode', (n) => /install\.ps1/.test(n.textContent)))
+  );
+  await tourPage.click('#hopPlus');
+  await tourPage.click('#hopPlus');
+  check(
+    'the tour route demo interactively adds proxy hops',
+    (await tourPage.$eval('#hopCount', (n) => n.textContent)) === '3 hops' && (await tourPage.$$('.chain-node')).length === 5
+  );
+  for (let i = 0; i < 13; i++) await tourPage.click('#hopPlus');
+  check(
+    'the route demo reaches its documented 16-hop ceiling',
+    (await tourPage.$eval('#hopCount', (n) => n.textContent)) === '16 hops' && (await tourPage.$eval('#hopPlus', (n) => n.disabled))
+  );
+  await tourPage.click('.strategy[data-strategy="check"]');
+  check(
+    'the tour DNS demo explains resolver cross-checks',
+    (await tourPage.$eval('#strategyNote', (n) => n.textContent)).includes('Conflicting answers')
+  );
+  await tourPage.click('#addResolver');
+  check(
+    'the tour DNS demo can grow its resolver stack',
+    (await tourPage.$$('.resolver-row')).length === 4 &&
+      (await tourPage.$eval('#resolverCount', (n) => n.textContent)) === '4 / 64 in stack'
+  );
+  await tourPage.click('#tabWindows');
+  check(
+    'the tour switches to the Windows PowerShell installer',
+    !(await tourPage.$eval('#windowsCode', (n) => n.hidden)) && (await tourPage.$eval('#unixCode', (n) => n.hidden))
+  );
+  await tourPage.setViewport({ width: 390, height: 820 });
+  await tourPage.click('#menuToggle');
+  check(
+    'the tour navigation opens accessibly on a phone',
+    (await tourPage.$eval('#menuToggle', (n) => n.getAttribute('aria-expanded'))) === 'true' &&
+      !(await tourPage.$eval('#mobileNav', (n) => n.hidden))
+  );
+  if (SHOTS) await tourPage.screenshot({ path: path.join(SHOTS, 'waddle-tour.png'), fullPage: true });
+
   // ---- shell
   await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
   check('landing renders', (await page.$eval('#landing h1', (n) => n.textContent)) === 'Waddle');
+  const homeMascot = await page.$eval('.hero svg', (svg) => ({
+    circles: svg.querySelectorAll('circle').length,
+    rings: ['::before', '::after'].some((pseudo) => getComputedStyle(svg.parentElement, pseudo).content !== 'none'),
+    eyes: getComputedStyle(svg.querySelector('.home-eyes')).animationName,
+    wing: getComputedStyle(svg.querySelector('.wave')).animationName,
+    foot: getComputedStyle(svg.querySelector('.home-foot')).animationName,
+    torso: getComputedStyle(svg.querySelector('.home-torso')).animationName,
+  }));
+  check('the homepage mascot has no decorative rings', homeMascot.circles === 4 && !homeMascot.rings, homeMascot);
+  check(
+    'the homepage animates Waddle’s blinking, wave, feet and body',
+    homeMascot.eyes === 'home-blink' &&
+      homeMascot.wing === 'home-wave' &&
+      homeMascot.foot === 'home-step' &&
+      homeMascot.torso === 'home-breathe',
+    homeMascot
+  );
+  check('the old promotional wording is absent from the homepage', !(await page.$eval('body', (n) => /perfected/i.test(n.textContent))));
   await page.waitForFunction(() => document.querySelectorAll('#chips .pill').length >= 4, { timeout: 5000 });
   const chips = await page.$$eval('#chips .pill', (n) => n.map((x) => x.textContent));
   check(
@@ -445,6 +558,54 @@ try {
     chips
   );
   check('quick links shown', (await page.$$eval('#links .tile', (n) => n.length)) === 4);
+  const checkpointFile = await page.evaluate(async () => {
+    const originalCreate = URL.createObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    let resolveText;
+    let filename = '';
+    const contents = new Promise((resolve) => {
+      resolveText = resolve;
+    });
+    URL.createObjectURL = function (blob) {
+      blob.text().then(resolveText);
+      return originalCreate.call(URL, blob);
+    };
+    HTMLAnchorElement.prototype.click = function () {
+      filename = this.download;
+      return originalClick.call(this);
+    };
+    try {
+      document.querySelector('#checkpoint').click();
+      const text = await contents;
+      return { filename: filename, text: text };
+    } finally {
+      URL.createObjectURL = originalCreate;
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+  const checkpointBackup = JSON.parse(checkpointFile.text);
+  check(
+    'the homepage checkpoint directly downloads a portable backup, without opening settings',
+    checkpointFile.filename.startsWith('waddle-backup-') &&
+      checkpointFile.filename.endsWith('.json') &&
+      checkpointBackup.format === 'waddle-backup' &&
+      checkpointBackup.version === 1 &&
+      checkpointBackup.config &&
+      checkpointBackup.browser &&
+      Array.isArray(checkpointBackup.tabs) &&
+      !('cookies' in checkpointBackup) &&
+      (await page.$eval('#drawer', (n) => n.hidden)),
+    {
+      filename: checkpointFile.filename,
+      format: checkpointBackup.format,
+      version: checkpointBackup.version,
+      hasConfig: !!checkpointBackup.config,
+      hasBrowser: !!checkpointBackup.browser,
+      hasTabs: Array.isArray(checkpointBackup.tabs),
+      hasCookies: 'cookies' in checkpointBackup,
+      drawerHidden: await page.$eval('#drawer', (n) => n.hidden),
+    }
+  );
   await shot('landing');
   const small = await phone('phone-landing');
   check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
@@ -1203,6 +1364,52 @@ try {
   );
   check('New identity closes extra Waddle tabs', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 1);
 
+  // A full migration backup moves both server settings and the browser-local shelf.
+  await page.click('#gear');
+  await tabTo('General');
+  await page.waitForSelector('#panel [data-k="btn:Export full backup"]');
+  const backupText = await page.evaluate(async () => {
+    const original = URL.createObjectURL;
+    let resolveText;
+    const content = new Promise((resolve) => {
+      resolveText = resolve;
+    });
+    URL.createObjectURL = function (blob) {
+      blob.text().then(resolveText);
+      return original.call(URL, blob);
+    };
+    try {
+      document.querySelector('[data-k="btn:Export full backup"]').click();
+      return await content;
+    } finally {
+      URL.createObjectURL = original;
+    }
+  });
+  const fullBackup = JSON.parse(backupText);
+  check(
+    'a full backup contains server settings, the local library and tabs but no session cookies',
+    fullBackup.format === 'waddle-backup' &&
+      fullBackup.version === 1 &&
+      fullBackup.config &&
+      fullBackup.browser.library.bookmarks.length > 0 &&
+      Array.isArray(fullBackup.tabs) &&
+      !('cookies' in fullBackup)
+  );
+  await page.evaluate(() => WaddleLocal.savePreferences({ accent: 'blue' }));
+  app.config.patch({ ui: { theme: 'dark' } });
+  const migrationFile = '/tmp/waddle-full-backup.json';
+  fs.writeFileSync(migrationFile, backupText);
+  page.once('dialog', (dialog) => dialog.accept());
+  const restoreNavigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 12000 });
+  await (await page.$('#panel input[aria-label="Restore a Waddle backup"]')).uploadFile(migrationFile);
+  await restoreNavigation;
+  await page.waitForFunction(() => window.WaddleLocal && document.querySelectorAll('#chips .pill').length >= 4, { timeout: 8000 });
+  check(
+    'restoring a backup migrates local preferences and replaces server settings',
+    app.config.value.ui.theme === fullBackup.config.ui.theme &&
+      (await page.evaluate(() => WaddleLocal.preferences().accent)) === fullBackup.browser.preferences.accent
+  );
+
   await page.keyboard.press('Escape');
 
   // ---- nothing reached the fixture except through the exit
@@ -1228,6 +1435,7 @@ try {
     edge.edgeStatuses.slice(0, 5)
   );
   check('no uncaught errors in the page', errors.length === 0, errors.slice(0, 3));
+  check('no uncaught errors on the tour page', tourErrors.length === 0, tourErrors.slice(0, 3));
 } catch (e) {
   check('run completed', false, String((e && e.stack) || e));
   await shot('failure');

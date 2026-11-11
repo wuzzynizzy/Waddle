@@ -1150,7 +1150,7 @@ test('settings API: guarded, validated, and everything it changes takes effect',
   assert.ok(
     st.options.systems.length >= 12 && st.options.screens.length >= 10 && st.options.dns.length >= 8 && st.options.countries.length >= 100
   );
-  assert.equal(st.options.maxHops, 5);
+  assert.equal(st.options.maxHops, 16);
   assert.equal(st.pool.health, 'ok');
   assert.deepEqual([st.pool.alive, st.pool.usable, st.pool.plain], [1, 1, 1]);
   assert.deepEqual(st.pool.countries, { US: 1 });
@@ -1222,6 +1222,64 @@ test('settings API: guarded, validated, and everything it changes takes effect',
   );
   assert.equal((await b.api('dns', { action: 'flush' })).status, 200);
   assert.equal((await b.api('dns', { action: 'refresh' })).status, 200);
+});
+
+test('versioned backups export and replace server configuration safely', async () => {
+  const { b, app, port } = await start({ spoof: { theme: 'dark' } }, { exit: false });
+  assert.equal((await get(port, '/-/api/backup')).status, 403, 'backup export requires the same Waddle API header');
+  const exported = await b.api('backup');
+  assert.equal(exported.status, 200);
+  assert.deepEqual([exported.json.format, exported.json.version], ['waddle-backup', 1]);
+  assert.equal(exported.json.config.spoof.theme, 'dark');
+
+  const invalid = await b.api('backup', { format: 'other', version: 1, config: { ui: { theme: 'light' } } });
+  assert.equal(invalid.status, 400);
+  assert.equal(app.config.value.spoof.theme, 'dark', 'reject an unsupported backup without changing settings');
+
+  const config = {
+    route: { hops: 16, rules: ['deep.example proxy hops=16'] },
+    dns: { strategy: 'check', parallel: 12, servers: ['cloudflare', 'quad9', 'google'] },
+    ui: { theme: 'light' },
+  };
+  const restored = await b.api('backup', { format: 'waddle-backup', version: 1, config });
+  assert.equal(restored.status, 200);
+  assert.equal(app.config.value.route.hops, 16);
+  assert.equal(app.config.value.route.rules[0], 'deep.example proxy hops=16');
+  assert.equal(app.config.value.dns.parallel, 12);
+  assert.equal(app.config.value.spoof.theme, 'real', 'replacement restores defaults for omitted settings');
+  assert.equal(restored.json.config.ui.theme, 'light');
+});
+
+test('tour and installer stay downloadable when the browser app uses a password', async () => {
+  const oldPassword = process.env.WADDLE_PASSWORD;
+  const oldUser = process.env.WADDLE_USER;
+  process.env.WADDLE_PASSWORD = 'test-only-secret';
+  process.env.WADDLE_USER = 'tour-test';
+  let s;
+  try {
+    s = await start({ pool: { sources: [], discover: false, on: false } }, { exit: false });
+  } finally {
+    if (oldPassword == null) delete process.env.WADDLE_PASSWORD;
+    else process.env.WADDLE_PASSWORD = oldPassword;
+    if (oldUser == null) delete process.env.WADDLE_USER;
+    else process.env.WADDLE_USER = oldUser;
+  }
+  const root = await get(s.port, '/');
+  assert.equal(root.status, 401, 'the proxy shell remains behind its password');
+  const tour = await get(s.port, '/tour');
+  assert.equal(tour.status, 200);
+  assert.match(tour.text, /Take the scenic route/);
+  assert.match(tour.text, /github\.com\/wuzzynizzy\/Waddle/);
+  for (const path of ['/install.sh', '/install.ps1']) {
+    const script = await get(s.port, path);
+    assert.equal(script.status, 200, path);
+    assert.match(script.headers['content-disposition'], /attachment/);
+    assert.match(script.text, /Node.js 20|node 20|node --version|Node 20/i);
+  }
+  for (const asset of ['/-/tour.css?v=test', '/-/tour.js?v=test', '/-/fonts/geist.woff2', '/-/icon.svg'])
+    assert.equal((await get(s.port, asset)).status, 200, asset);
+  const auth = 'Basic ' + Buffer.from('tour-test:test-only-secret').toString('base64');
+  assert.equal((await get(s.port, '/', { headers: { Authorization: auth } })).status, 200);
 });
 
 test('a page cannot use its own requests to reach the settings API', async () => {
@@ -1919,6 +1977,34 @@ test('proxy over proxy: chains of 2 and 3 hops carry the page, and only the exit
   r = await b.page(s.url + '/');
   assert.equal(r.headers['x-waddle-error'], 'noproxy');
   assert.match(r.text, /<h1>No entry proxy<\/h1>/);
+});
+
+test('a full 16-hop chain carries a page, with only the exit seeing the destination', async () => {
+  const w = await world();
+  const extra = [];
+  for (let i = 0; i < 13; i++) extra.push(await httpProxy());
+  const all = w.all.concat(extra);
+  const { b, app } = await start(
+    {
+      route: { hops: 16, shorten: false, spread: false },
+      pool: { sources: [], on: false, judge: w.judgeUrl, canaries: [w.canary], echo: '' },
+    },
+    { exit: false }
+  );
+  app.pool.addManual(all.map((p) => p.proto + '://' + p.host + ':' + p.port).join('\n'));
+  await until(() => app.pool.alive.size === 16 && app.pool.summary().plain === 16, 15000);
+  for (const p of all) p.log.length = 0;
+  const s = await site({ '/': { body: PAGE } });
+  const r = await b.page(s.url + '/');
+  assert.equal(r.status, 200);
+  const last = (await b.api('state')).json.pool.last;
+  assert.equal(last.hops.length, 16);
+  assert.equal(new Set(last.hops.map((h) => h.addr)).size, 16);
+  assert.equal(all.filter((p) => p.log.length).length, 16, 'all 16 distinct proxies took part');
+  const exit = all.find((p) => p.addr === last.hops[15].addr);
+  const sawSite = (p) => p.log.some((entry) => (typeof entry === 'string' ? entry.endsWith(':' + s.port) : entry.port === s.port));
+  assert.ok(exit && sawSite(exit), 'the exit connected to the website');
+  for (const p of all) if (p !== exit) assert.ok(!sawSite(p), 'a relay did not learn the destination');
 });
 
 test('per-site rules pick the country and the chain length; the identity follows the exit', async () => {
