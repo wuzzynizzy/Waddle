@@ -28,6 +28,7 @@
   --shadow: 0 1px 2px rgb(14 22 32 / 6%), 0 8px 28px rgb(14 22 32 / 10%);
   --r: 12px;
   --bar: 56px;
+  --tabbar-h: 40px;
   --sans: Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font:
@@ -153,6 +154,12 @@ button {
   border: 0;
   padding: 0;
   cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
 }
 button:disabled {
   opacity: 0.5;
@@ -304,6 +311,9 @@ body.browsing form.nav {
   border-radius: 10px;
   padding: 0 12px;
   gap: 8px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 #nav:focus-within {
   background: var(--card);
@@ -471,6 +481,7 @@ body:not(.browsing) #route span {
   border-radius: 14px;
   background: transparent;
   box-shadow: none;
+  transition: border-color 150ms ease;
 }
 #start:focus-within {
   border-color: var(--muted);
@@ -592,7 +603,7 @@ body:not(.browsing) #route span {
 #tabs {
   flex: none;
   display: flex;
-  gap: 2px;
+  gap: 5px;
   padding: 12px 16px 0;
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
@@ -607,10 +618,12 @@ body:not(.browsing) #route span {
   font-weight: 500;
   color: var(--muted);
   border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
   margin-bottom: -1px;
   white-space: nowrap;
 }
 #tabs button:hover {
+  background: var(--soft);
   color: var(--text);
 }
 #tabs button.on {
@@ -1065,6 +1078,19 @@ textarea:focus,
   overflow: hidden;
   text-overflow: ellipsis;
 }
+#toast:not([hidden]) {
+  animation: toast-enter 160ms ease-out both;
+}
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 5px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
 #away {
   position: fixed;
   left: 50%;
@@ -1120,17 +1146,18 @@ textarea:focus,
 
 /* ---- open browser tabs -------------------------------------------------------------- */
 #tabbar {
-  --tabbar-h: 36px;
   height: var(--tabbar-h);
   min-height: var(--tabbar-h);
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px 0;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 4px 12px 0;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--card);
+  overscroll-behavior-x: contain;
+  scroll-behavior: smooth;
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
   scrollbar-width: none;
   order: 1;
@@ -1148,14 +1175,24 @@ textarea:focus,
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  min-width: 92px;
-  max-width: 236px;
-  height: 30px;
-  border-radius: 8px 8px 0 0;
+  min-width: 108px;
+  max-width: 240px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px 9px 0 0;
   background: transparent;
+  scroll-snap-align: start;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.tabgroup:not(.active):hover {
+  background: var(--soft);
 }
 .tabgroup.active {
-  background: var(--soft);
+  background: var(--card);
+  border-color: var(--line);
+  border-bottom-color: var(--card);
 }
 .browser-tab {
   height: 30px;
@@ -1168,6 +1205,7 @@ textarea:focus,
   text-align: left;
   color: var(--muted);
   font-size: 12.5px;
+  transition: color 150ms ease;
 }
 .tabgroup.active .browser-tab {
   color: var(--text);
@@ -1182,6 +1220,7 @@ textarea:focus,
   width: 6px;
   height: 6px;
   opacity: 0.35;
+  transition: opacity 150ms ease;
 }
 .browser-tab .dot.ok,
 .browser-tab .dot.bad {
@@ -1199,19 +1238,35 @@ textarea:focus,
   font-size: 17px;
   line-height: 1;
 }
+.tab-close {
+  margin-right: 3px;
+  opacity: 0.56;
+}
+.tabgroup:hover .tab-close,
+.tabgroup.active .tab-close,
+.tab-close:focus-visible {
+  opacity: 1;
+}
 .tab-close:hover {
-  background: var(--line);
+  background: var(--soft);
   color: var(--text);
+  transform: scale(1.06);
 }
 .new-tab {
-  width: 30px;
-  height: 28px;
+  width: 32px;
+  height: 30px;
+  margin-left: 1px;
   border: 0;
   background: transparent;
+  font-size: 20px;
 }
 .new-tab:hover {
   background: transparent;
-  color: var(--text);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.new-tab:active {
+  transform: scale(0.94);
 }
 #bookmark.saved {
   color: var(--accent);
@@ -1260,6 +1315,20 @@ textarea:focus,
 #addressSuggestions {
   top: calc(100% + 4px);
   min-width: min(360px, calc(100vw - 24px));
+}
+#suggestions:not([hidden]),
+#addressSuggestions:not([hidden]) {
+  animation: dropdown-enter 140ms ease-out both;
+}
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .suggest-heading {
   padding: 7px 10px 4px;
@@ -1316,6 +1385,20 @@ textarea:focus,
   border-left: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
+#drawer:not([hidden]),
+#libraryPanel:not([hidden]) {
+  animation: panel-enter 180ms ease-out both;
+}
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 #libraryHead {
   flex: none;
   min-height: 48px;
@@ -1346,6 +1429,11 @@ textarea:focus,
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;
+}
+#libraryTabs button:hover,
+.inspect-tabs button:hover {
+  background: var(--soft);
+  color: var(--text);
 }
 #libraryTabs button.on,
 .inspect-tabs button.on {
@@ -1627,10 +1715,21 @@ html[data-text-size='large'] {
 }
 body[data-tab-position='bottom'] #tabbar {
   order: 4;
+  align-items: flex-start;
   border-top: 1px solid var(--line);
   border-bottom: 0;
-  padding-bottom: 3px;
-  padding-top: 0;
+  padding: 0 12px 4px;
+}
+body[data-tab-position='bottom'] #drawer,
+body[data-tab-position='bottom'] #libraryPanel {
+  top: var(--bar);
+}
+body[data-tab-position='bottom'] .tabgroup {
+  border-radius: 0 0 9px 9px;
+}
+body[data-tab-position='bottom'] .tabgroup.active {
+  border-top-color: var(--card);
+  border-bottom-color: var(--line);
 }
 body[data-tab-position='bottom'] #progress {
   order: 1;
@@ -1640,14 +1739,34 @@ body[data-tab-position='bottom'] #stage {
   order: 2;
 }
 @media (max-width: 640px) {
+  :root {
+    --tabbar-h: 36px;
+  }
   #tabbar {
-    --tabbar-h: 34px;
-    padding-left: 6px;
-    padding-right: 6px;
-    gap: 3px;
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 4px;
+    scroll-snap-type: x proximity;
   }
   .tabgroup {
-    max-width: 172px;
+    min-width: 88px;
+    max-width: 170px;
+    height: 30px;
+  }
+  .browser-tab {
+    height: 28px;
+    gap: 5px;
+    padding-left: 8px;
+    font-size: 12px;
+  }
+  .tab-close {
+    width: 22px;
+    height: 22px;
+    margin-right: 2px;
+  }
+  .new-tab {
+    width: 34px;
+    height: 28px;
   }
   #libraryPanel {
     width: 100vw;
@@ -1674,9 +1793,25 @@ body[data-tab-position='bottom'] #stage {
     display: none;
   }
   .tabgroup {
+    min-width: 82px;
     max-width: 140px;
+  }
+  .browser-tab {
+    gap: 4px;
+    padding-left: 7px;
   }
   #tabbar {
     overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

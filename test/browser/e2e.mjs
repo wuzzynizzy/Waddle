@@ -1067,6 +1067,27 @@ try {
     'a page link targeting a new window opens a Waddle tab',
     (await addrBar()).includes('from=new-tab') && (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 3
   );
+  await page.setViewport({ width: 320, height: 720 });
+  await sleep(180);
+  const narrowTabs = await page.$eval('#tabbar', (n) => ({
+    width: n.clientWidth,
+    scrollWidth: n.scrollWidth,
+    height: n.clientHeight,
+    scrollHeight: n.scrollHeight,
+    overflowX: getComputedStyle(n).overflowX,
+    viewport: innerWidth,
+    pageWidth: document.documentElement.scrollWidth,
+  }));
+  check(
+    'browser tabs scroll inside their strip on narrow screens',
+    narrowTabs.width === narrowTabs.viewport &&
+      narrowTabs.scrollWidth > narrowTabs.width &&
+      narrowTabs.scrollHeight <= narrowTabs.height + 1 &&
+      narrowTabs.pageWidth <= narrowTabs.viewport,
+    narrowTabs
+  );
+  await page.setViewport({ width: 1280, height: 800 });
+  await sleep(220);
   check('the active tab shows its own exit status', await page.$eval('#tabbar .tabgroup.active .dot', (n) => n.classList.contains('ok')));
   await page.click('#bookmark');
   check(

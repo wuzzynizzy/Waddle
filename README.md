@@ -178,7 +178,7 @@ identity. A service worker catches whatever is left. More in
 
 ```sh
 npm test              # 191 unit and integration tests, no network needed
-npm run test:browser  # 137 browser checks in a real Chrome (see docs/testing.md)
+npm run test:browser  # 138 browser checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
