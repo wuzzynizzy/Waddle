@@ -835,7 +835,7 @@
       k.fillStyle = '#f60';
       k.fillRect(100, 2, 80, 24);
       k.fillStyle = '#069';
-      k.fillText('Waddle, 1.0 \ud83d\udc27', 2, 8);
+      k.fillText('Waddle, 1.0', 2, 8);
       var u = c2.toDataURL();
       var h = 0;
       for (var j = 0; j < u.length; j++) h = (h * 31 + u.charCodeAt(j)) | 0;
@@ -1195,7 +1195,11 @@
   // ---- settings controls ----------------------------------------------------------
   function row(label, control, o) {
     o = o || {};
-    return el('div', { class: 'row' + (o.col ? ' col' : '') }, [
+    var classes = control && control.classList;
+    var segmented = classes && classes.contains('seg');
+    var fluid =
+      (classes && (classes.contains('dd') || classes.contains('btns'))) || (control && /^(INPUT|TEXTAREA)$/.test(control.tagName));
+    return el('div', { class: 'row' + (o.col ? ' col' : '') + (segmented ? ' row-seg' : '') + (fluid ? ' row-fluid' : '') }, [
       el('label', {}, [label, o.hint ? el('small', { text: o.hint }) : null]),
       control,
     ]);
@@ -1585,7 +1589,7 @@
     var cur = frontend[key];
     var box = el(
       'div',
-      { class: 'seg', role: 'group', 'aria-label': label },
+      { class: 'seg' + (key === 'theme' ? ' theme-seg' : ''), role: 'group', 'aria-label': label },
       opts.map(function (x) {
         var value = Array.isArray(x) ? x[0] : x;
         var selected = String(cur) === String(value);
@@ -2548,17 +2552,19 @@
             ['slate', 'Slate'],
             ['custom', 'Custom'],
           ]),
-          row(
-            'Custom accent',
-            el('input', {
-              type: 'color',
-              value: frontend.accent === 'custom' ? frontend.accentCustom : local.accentColors[frontend.accent] || frontend.accent,
-              'aria-label': 'Custom accent colour',
-              onchange: function (e) {
-                setFrontendPreferences({ accent: 'custom', accentCustom: e.target.value });
-              },
-            })
-          ),
+          frontend.accent === 'custom'
+            ? row(
+                'Custom accent',
+                el('input', {
+                  type: 'color',
+                  value: frontend.accentCustom,
+                  'aria-label': 'Custom accent colour',
+                  onchange: function (e) {
+                    setFrontendPreferences({ accent: 'custom', accentCustom: e.target.value });
+                  },
+                })
+              )
+            : null,
           localSel('Interface density', 'density', [
             ['comfortable', 'Comfortable'],
             ['compact', 'Compact'],

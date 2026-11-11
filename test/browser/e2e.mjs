@@ -438,7 +438,12 @@ const canvasPrint = () => {
 try {
   // ---- shell
   await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
-  check('landing renders', (await page.$eval('#landing h1', (n) => n.textContent)) === 'Waddle');
+  check(
+    'landing renders',
+    (await page.$eval('#landing', (n) => getComputedStyle(n).display !== 'none')) &&
+      (await page.$('#q')) !== null &&
+      (await page.title()) === 'Waddle'
+  );
   await page.waitForFunction(() => document.querySelector('#route span').textContent.length > 0, { timeout: 5000 });
   check(
     'the start screen keeps only the proxy entry point and quiet attribution',
@@ -448,8 +453,17 @@ try {
       (await page.$eval('body', (n) => !/Meet Waddle|Take the scenic route|Save checkpoint/i.test(n.textContent))) &&
       !(await page.$('#start kbd')) &&
       (await page.$eval('a[href="https://github.com/wuzzynizzy/Waddle"]', (n) => n.textContent.trim())) === 'Source on GitHub' &&
-      !!(await page.$('a[href$="/LICENSE"]')),
+      !(await page.$('a[href$="/LICENSE"]')),
     await page.$eval('#route span', (n) => n.textContent)
+  );
+  check(
+    'the start page has no mascot, wordmark or redundant icon',
+    await page.evaluate(
+      () =>
+        getComputedStyle(document.querySelector('#home')).display === 'none' &&
+        !document.querySelector('#landing h1, .home-brand, #start > svg') &&
+        document.querySelectorAll('.home-footer a').length === 1
+    )
   );
   const homeOffset = await page.$eval('.home-main', (n) => {
     const home = n.getBoundingClientRect();
@@ -923,6 +937,31 @@ try {
     n.value = '';
   });
   await tabTo('General');
+  await page.setViewport({ width: 320, height: 720 });
+  await sleep(180);
+  const narrowSettings = await page.$eval('#panel', (panel) => {
+    const overlap = [...panel.querySelectorAll('.row')].some((row) => {
+      const label = row.querySelector(':scope > label');
+      const control = row.children[1];
+      if (!label || !control) return false;
+      const a = label.getBoundingClientRect();
+      const b = control.getBoundingClientRect();
+      return a.width && b.width && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    });
+    return {
+      overlap,
+      panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
+    };
+  });
+  check(
+    'settings controls reflow without overlap at a narrow width',
+    !narrowSettings.overlap && !narrowSettings.panelOverflow && !narrowSettings.pageOverflow,
+    narrowSettings
+  );
+  await page.setViewport({ width: 1280, height: 800 });
+  await sleep(180);
+  check('preset accents hide the custom colour editor', (await page.$('#panel input[aria-label="Custom accent colour"]')) === null);
   await page.waitForSelector('#panel [data-k="local.theme=dark"]');
   const serverConfigBeforeTheme = JSON.stringify(app.config.value);
   await press('local.theme=dark');
@@ -1192,13 +1231,38 @@ try {
   check('external web suggestions are opt-in', await page.evaluate(() => WaddleLocal.preferences().externalSuggestions === false));
   await page.click('#gear');
   await tabTo('General');
+  await sleep(220);
   await shot('frontend-settings');
   await page.click('#panel [data-k="local.theme=midnight"]');
   await page.waitForFunction(() => WaddleLocal.preferences().theme === 'midnight' && document.documentElement.dataset.theme === 'midnight');
   check('named themes apply immediately and stay local', await page.evaluate(() => WaddleLocal.preferences().theme === 'midnight'));
-  await page.click('#panel [data-k="local.theme=auto"]');
+  await press('local.theme=auto');
   await page.waitForFunction(() => WaddleLocal.preferences().theme === 'auto' && !document.documentElement.hasAttribute('data-theme'));
+  await press('local.accent');
+  await page.waitForSelector('#panel .dd-opt');
+  await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Custom').click());
+  await page.waitForFunction(() => WaddleLocal.preferences().accent === 'custom');
   const customAccent = await page.$('#panel input[aria-label="Custom accent colour"]');
+  check('choosing Custom reveals the accent colour editor', !!customAccent);
+  await page.setViewport({ width: 320, height: 720 });
+  await sleep(180);
+  const customAccentLayout = await page.$eval('#panel input[aria-label="Custom accent colour"]', (input) => {
+    const row = input.closest('.row');
+    const label = row.querySelector(':scope > label').getBoundingClientRect();
+    const control = input.getBoundingClientRect();
+    return {
+      overlap: label.left < control.right && label.right > control.left && label.top < control.bottom && label.bottom > control.top,
+      panelOverflow: row.parentElement.scrollWidth > row.parentElement.clientWidth + 1,
+    };
+  });
+  check(
+    'custom accent editor reflows without overlap on a phone',
+    !customAccentLayout.overlap && !customAccentLayout.panelOverflow,
+    customAccentLayout
+  );
+  await page.setViewport({ width: 1280, height: 800 });
+  await sleep(180);
+  await shot('custom-accent', '#drawer');
   await customAccent.evaluate((n) => {
     n.value = '#14a085';
     n.dispatchEvent(new Event('change', { bubbles: true }));
