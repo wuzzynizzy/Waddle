@@ -72,18 +72,74 @@ test('rewriteHtml: attributes, inline CSS, module scripts', () => {
   has(`srcset="${P}/dir/a.jpg 1x, ${P}/b.jpg 2x"`);
   has(`action="${P}/post"`);
   has(`formaction="${P}/b2"`);
-  has('src="/~/https://frame.test/"');
+  has('src="/~/f/https://frame.test/"');
   has(`poster="${P}/p.png"`);
   has(`src="${P}/v.mp4"`);
   has(`url(${P}/d.png)`);
   has(`url("${P}/bg.png")`);
   has(`xlink:href="${P}/i.svg"`);
   has('href="#id"');
-  has(`data="${P}/o.swf"`);
+  has('data="/~/f/https://site.test/o.swf"');
   has(`"lib":"${P}/lib.js"`);
   has(`import x from "${P}/mod.js"`);
   has(`content="5; url=${P}/next"`);
   has('target="_self"');
+});
+
+test('frames: what a page embeds is addressed with a mark, so the server can tell it from a page someone opened', () => {
+  assert.equal(r.proxify('/inner', B, true), '/~/f/https://site.test/inner');
+  assert.equal(r.proxify('https://ads.test/slot?x=1', B, true), '/~/f/https://ads.test/slot?x=1');
+  assert.equal(r.proxify('about:blank', B, true), 'about:blank', 'what is not a web address stays as it is');
+  assert.equal(r.proxify('javascript:void 0', B, true), 'javascript:void 0');
+  assert.equal(r.unproxify('/~/f/https://ads.test/slot?x=1').href, 'https://ads.test/slot?x=1', 'the mark is not part of the address');
+  assert.equal(r.unproxify('http://waddle.test/~/f/http://a.test/').href, 'http://a.test/');
+  assert.equal(r.isFrame('/~/f/https://ads.test/slot'), true);
+  assert.equal(r.isFrame('http://waddle.test/~/f/http://a.test/'), true);
+  assert.equal(r.isFrame('/~/https://ads.test/slot'), false);
+  assert.equal(r.isFrame('/~/https://f.test/f/https://x.test/'), false, 'only right after the prefix');
+  assert.equal(r.unproxify('/~/f.test/page').href, 'https://f.test/page', 'a site called f.test is still a site');
+
+  const out = r.rewriteHtml(
+    '<iframe src="/a"></iframe><frame src="/b"><embed src="/c.pdf"><object data="/d.svg"></object>' +
+      '<img src="/pic.png"><a href="/link">x</a><script src="/s.js"></script><iframe src="about:blank"></iframe>',
+    B,
+    { inject: '' }
+  );
+  for (const u of [
+    'src="/~/f/https://site.test/a"',
+    'src="/~/f/https://site.test/b"',
+    'src="/~/f/https://site.test/c.pdf"',
+    'data="/~/f/https://site.test/d.svg"',
+  ])
+    assert.ok(out.includes(u), 'missing: ' + u);
+  for (const u of [`src="${P}/pic.png"`, `href="${P}/link"`, `src="${P}/s.js"`, 'src="about:blank"'])
+    assert.ok(out.includes(u), 'missing: ' + u);
+});
+
+test('frames: a sandboxed frame keeps its origin, or its requests would slip out of reach', () => {
+  const out = r.rewriteHtml(
+    '<iframe sandbox src="/a"></iframe><iframe sandbox="allow-scripts" src="/b"></iframe>' +
+      '<iframe sandbox="allow-scripts allow-same-origin" src="/c"></iframe><iframe src="/d"></iframe><div sandbox="x"></div>',
+    B,
+    { inject: '' }
+  );
+  assert.ok(out.includes('<iframe sandbox="allow-same-origin" src="/~/f/https://site.test/a">'), out);
+  assert.ok(out.includes('<iframe sandbox="allow-scripts allow-same-origin" src="/~/f/https://site.test/b">'), out);
+  assert.ok(out.includes('<iframe sandbox="allow-scripts allow-same-origin" src="/~/f/https://site.test/c">'), 'already there: unchanged');
+  assert.ok(out.includes('<iframe src="/~/f/https://site.test/d">'), 'no sandbox: none is added');
+  assert.ok(out.includes('<div sandbox="x">'), 'only frames have one');
+});
+
+test('rewriteHtml: a page cannot switch its own referrer off (Waddle reads it to know which page asked)', () => {
+  const out = r.rewriteHtml(
+    '<head><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=1"></head>' +
+      '<a href="/x" referrerpolicy="no-referrer">x</a><img src="/i.png" referrerpolicy="origin"><link rel="preconnect" href="https://cdn.test">',
+    B,
+    { inject: '' }
+  );
+  assert.ok(!/referrer/i.test(out), out);
+  assert.ok(out.includes('<meta name="viewport" content="width=1">'));
+  assert.ok(!out.includes('cdn.test'), 'a connection hint would make the browser dial a third party by itself');
 });
 
 test('rewriteHtml: what would break or leak is removed', () => {
