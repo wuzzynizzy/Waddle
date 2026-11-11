@@ -35,13 +35,10 @@ no way to fetch a site without one.
 | `lib/geo.js`       | Countries: languages, time zones and a position for each                        |
 | `lib/trackers.js`  | The list of tracking and advertising hosts                                      |
 | `lib/pages.js`     | Waddle's own pages: errors, and "What sites see"                                |
-| `public/index.html` | Browser-shell markup, including the start page and backup action              |
-| `public/app.css`   | Shell styling and reduced-motion-aware mascot animations                        |
+| `public/index.html` | Browser shell with a minimal address/search start screen                     |
+| `public/app.css`   | Shell and responsive browser-interface styling                                |
 | `public/app.js`    | Browser shell: tabs, address bar, library, inspector and settings                |
 | `public/local.js`  | Browser-local bookmarks, saved addresses, history and frontend preferences     |
-| `public/tour.html` | Interactive product tour and hand-authored mascot illustrations                  |
-| `public/tour.css`  | Tour layout, demos and mascot motion                                             |
-| `public/tour.js`   | Tour interactions: route, DNS and installer demonstrations                     |
 | `public/client.js` | Script placed first in every proxied page and worker                            |
 | `public/sw.js`     | Service worker: catches stray requests, hides a host's error pages              |
 
@@ -59,15 +56,11 @@ no way to fetch a site without one.
 
 Each Waddle tab keeps its address and navigation history separately in browser `localStorage` and
 restores them when the shell reloads. The library and frontend preferences are also browser-local:
-bookmarks and folders, searchable history, saved read-later addresses, appearance and start-page
-options. Saved items are URLs and titles, not downloaded page copies. Local suggestions match this
-library and open tabs; optional DuckDuckGo autocomplete is off by default and sends typed queries
-through the current proxy exit when enabled.
-
-The homepage's **Save checkpoint** action asks the server for its versioned settings backup, combines
-it with the browser-local library, preferences and tab state, and downloads one JSON file. Restore is
-kept in General settings so replacing existing state requires a deliberate choice. The endpoint and
-file contents are documented in [api.md](api.md#server-settings-backup).
+bookmarks and folders, searchable history, saved read-later addresses, appearance preferences, and
+open-tab state. Saved items are URLs and titles, not downloaded page copies. Local address suggestions
+match this library and open tabs; optional DuckDuckGo autocomplete is off by default and sends typed
+queries through the current proxy exit when enabled. These browser-local records are not exported by
+Waddle. The start screen itself contains only the address/search field and small project attribution.
 
 The Inspector combines two sources. `lib/proxy.js` records a capped, newest-first log of recent
 requests in each in-memory visitor session, including route, status, transfer counts, duration,

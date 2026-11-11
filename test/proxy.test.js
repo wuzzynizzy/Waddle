@@ -1224,37 +1224,11 @@ test('settings API: guarded, validated, and everything it changes takes effect',
   assert.equal((await b.api('dns', { action: 'refresh' })).status, 200);
 });
 
-test('versioned backups export and replace server configuration safely', async () => {
-  const { b, app, port } = await start({ spoof: { theme: 'dark' } }, { exit: false });
-  assert.equal((await get(port, '/-/api/backup')).status, 403, 'backup export requires the same Waddle API header');
-  const exported = await b.api('backup');
-  assert.equal(exported.status, 200);
-  assert.deepEqual([exported.json.format, exported.json.version], ['waddle-backup', 1]);
-  assert.equal(exported.json.config.spoof.theme, 'dark');
-
-  const invalid = await b.api('backup', { format: 'other', version: 1, config: { ui: { theme: 'light' } } });
-  assert.equal(invalid.status, 400);
-  assert.equal(app.config.value.spoof.theme, 'dark', 'reject an unsupported backup without changing settings');
-
-  const config = {
-    route: { hops: 16, rules: ['deep.example proxy hops=16'] },
-    dns: { strategy: 'check', parallel: 12, servers: ['cloudflare', 'quad9', 'google'] },
-    ui: { theme: 'light' },
-  };
-  const restored = await b.api('backup', { format: 'waddle-backup', version: 1, config });
-  assert.equal(restored.status, 200);
-  assert.equal(app.config.value.route.hops, 16);
-  assert.equal(app.config.value.route.rules[0], 'deep.example proxy hops=16');
-  assert.equal(app.config.value.dns.parallel, 12);
-  assert.equal(app.config.value.spoof.theme, 'real', 'replacement restores defaults for omitted settings');
-  assert.equal(restored.json.config.ui.theme, 'light');
-});
-
-test('tour and installer stay downloadable when the browser app uses a password', async () => {
+test('backup and tour endpoints are removed; installers remain public', async () => {
   const oldPassword = process.env.WADDLE_PASSWORD;
   const oldUser = process.env.WADDLE_USER;
   process.env.WADDLE_PASSWORD = 'test-only-secret';
-  process.env.WADDLE_USER = 'tour-test';
+  process.env.WADDLE_USER = 'waddle-test';
   let s;
   try {
     s = await start({ pool: { sources: [], discover: false, on: false } }, { exit: false });
@@ -1264,21 +1238,30 @@ test('tour and installer stay downloadable when the browser app uses a password'
     if (oldUser == null) delete process.env.WADDLE_USER;
     else process.env.WADDLE_USER = oldUser;
   }
-  const root = await get(s.port, '/');
-  assert.equal(root.status, 401, 'the proxy shell remains behind its password');
-  const tour = await get(s.port, '/tour');
-  assert.equal(tour.status, 200);
-  assert.match(tour.text, /Take the scenic route/);
-  assert.match(tour.text, /github\.com\/wuzzynizzy\/Waddle/);
+  assert.equal((await get(s.port, '/')).status, 401, 'the proxy shell remains behind its password');
+  const auth = 'Basic ' + Buffer.from('waddle-test:test-only-secret').toString('base64');
+  assert.equal((await get(s.port, '/tour', { headers: { Authorization: auth } })).status, 404);
+  assert.equal((await get(s.port, '/download', { headers: { Authorization: auth } })).status, 404);
+  assert.equal((await get(s.port, '/-/tour.css?v=test', { headers: { Authorization: auth } })).status, 404);
+  const removedExport = await get(s.port, '/-/api/backup', {
+    headers: { Authorization: auth, 'X-Waddle': '1' },
+  });
+  assert.equal(removedExport.status, 405, 'the server-side backup API is gone');
+  const removedRestore = await get(s.port, '/-/api/backup', {
+    method: 'POST',
+    body: JSON.stringify({ format: 'waddle-backup', version: 1, config: { route: { hops: 16 } } }),
+    headers: { Authorization: auth, 'X-Waddle': '1', 'Content-Type': 'application/json' },
+  });
+  assert.equal(removedRestore.status, 404, 'unknown API actions cannot replace the configuration');
+  assert.equal(s.app.config.value.route.hops, 1);
   for (const path of ['/install.sh', '/install.ps1']) {
     const script = await get(s.port, path);
     assert.equal(script.status, 200, path);
     assert.match(script.headers['content-disposition'], /attachment/);
     assert.match(script.text, /Node.js 20|node 20|node --version|Node 20/i);
   }
-  for (const asset of ['/-/tour.css?v=test', '/-/tour.js?v=test', '/-/fonts/geist.woff2', '/-/icon.svg'])
-    assert.equal((await get(s.port, asset)).status, 200, asset);
-  const auth = 'Basic ' + Buffer.from('tour-test:test-only-secret').toString('base64');
+  for (const asset of ['/-/fonts/geist.woff2', '/-/icon.svg'])
+    assert.equal((await get(s.port, asset, { headers: { Authorization: auth } })).status, 200, asset);
   assert.equal((await get(s.port, '/', { headers: { Authorization: auth } })).status, 200);
 });
 

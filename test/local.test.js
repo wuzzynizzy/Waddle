@@ -29,84 +29,82 @@ function libraryInMemory() {
   return { local: window.WaddleLocal, storage };
 }
 
-test('browser-local data exports, sanitizes and restores as a portable snapshot', () => {
+test('bookmarks, saved addresses and history remain browser-local', () => {
   const { local, storage } = libraryInMemory();
-  local.bookmark('https://example.com/guide', 'Guide', 'Reading');
-  local.saveForLater('https://example.net/later', 'Later');
+  const bookmark = local.bookmark('https://example.com/guide', 'Guide', 'Reading');
+  const saved = local.saveForLater('https://example.net/later', 'Later');
   local.visit('https://example.org/story', 'Story');
-  local.savePreferences({ accent: 'blue', density: 'compact', textSize: 'large', externalSuggestions: true });
-  storage.setItem('waddle.theme', 'dark');
 
-  const snapshot = local.exportState();
-  assert.deepEqual(JSON.parse(JSON.stringify(snapshot)), {
-    library: {
-      folders: ['Unsorted', 'Reading'],
-      bookmarks: [
-        { id: 'test-id', url: 'https://example.com/guide', title: 'Guide', folder: 'Reading', at: snapshot.library.bookmarks[0].at },
-      ],
-      saved: [{ id: 'test-id', url: 'https://example.net/later', title: 'Later', folder: 'Unsorted', at: snapshot.library.saved[0].at }],
-      history: [
-        { id: 'test-id', url: 'https://example.org/story', title: 'Story', folder: 'Unsorted', at: snapshot.library.history[0].at },
-      ],
-    },
-    preferences: {
-      accent: 'blue',
-      density: 'compact',
-      textSize: 'large',
-      tabPosition: 'top',
-      showLinks: true,
-      showRecommendations: true,
-      showStatus: true,
-      externalSuggestions: true,
-    },
-    theme: 'dark',
-  });
-
-  storage.setItem(local.keys.library, '{"bookmarks":[]}');
-  storage.setItem(local.keys.preferences, '{"accent":"rose"}');
-  storage.setItem('waddle.theme', 'light');
-  assert.equal(local.importState(snapshot), true);
-  const restored = local.exportState();
-  assert.deepEqual(JSON.parse(JSON.stringify(restored)), JSON.parse(JSON.stringify(snapshot)));
-});
-
-test('browser-local imports discard unsafe URLs and invalid preferences', () => {
-  const { local } = libraryInMemory();
-  assert.equal(
-    local.importState({
-      library: {
-        folders: ['Saved'],
-        bookmarks: [
-          { url: 'javascript:alert(1)', title: 'bad', folder: 'Saved' },
-          { url: 'https://good.example/path', title: 'Good', folder: 'Saved' },
-        ],
+  assert.deepEqual(JSON.parse(JSON.stringify(local.get())), {
+    folders: ['Unsorted', 'Reading'],
+    bookmarks: [{ id: 'test-id', url: 'https://example.com/guide', title: 'Guide', folder: 'Reading', at: bookmark.at }],
+    saved: [{ id: 'test-id', url: 'https://example.net/later', title: 'Later', folder: 'Unsorted', at: saved.at }],
+    history: [
+      {
+        id: 'test-id',
+        url: 'https://example.org/story',
+        title: 'Story',
+        folder: 'Unsorted',
+        at: local.get().history[0].at,
       },
-      preferences: { accent: 'ultraviolet', density: 'weird', textSize: 'tiny', showLinks: false },
-      theme: 'automatic',
-    }),
-    true
-  );
-  const snapshot = local.exportState();
-  assert.deepEqual(JSON.parse(JSON.stringify(snapshot.library.bookmarks.map((x) => x.url))), ['https://good.example/path']);
-  assert.equal(snapshot.preferences.accent, 'orange');
-  assert.equal(snapshot.preferences.density, 'comfortable');
-  assert.equal(snapshot.preferences.textSize, 'normal');
-  assert.equal(snapshot.preferences.showLinks, false);
-  assert.equal(snapshot.theme, '');
+    ],
+  });
+  assert.ok(storage.getItem(local.keys.library), 'the library is stored in this browser');
+  assert.equal(local.exportState, undefined);
+  assert.equal(local.exportBookmarks, undefined);
+  assert.equal(local.importState, undefined, 'there is no Waddle backup/restore surface');
 });
 
-test('browser-local import rolls back if storage fills halfway through', () => {
+test('bookmark imports and URL/preferences sanitization stay one-way and local', () => {
   const { local, storage } = libraryInMemory();
-  local.bookmark('https://before.example/', 'Before');
-  const before = local.exportState();
-  storage.failKey = local.keys.preferences;
-  assert.equal(
-    local.importState({
-      library: { bookmarks: [{ url: 'https://after.example/', title: 'After' }] },
-      preferences: { accent: 'teal' },
-    }),
-    false
-  );
+  const count = local.importBookmarks({
+    folders: ['Reading', 'Reading'],
+    bookmarks: [
+      { url: 'javascript:alert(1)', title: 'bad', folder: 'Reading' },
+      { url: 'https://user:secret@good.example/path', title: 'Good', folder: 'Reading' },
+    ],
+  });
+  assert.equal(count, 1);
+  assert.equal(local.get().bookmarks[0].url, 'https://good.example/path');
+  assert.deepEqual(JSON.parse(JSON.stringify(local.get().folders)), ['Unsorted', 'Reading']);
+
+  local.savePreferences({
+    theme: 'ultraviolet',
+    accent: 'ultraviolet',
+    density: 'weird',
+    textSize: 'tiny',
+    tabPosition: 'sideways',
+    externalSuggestions: true,
+    staleStartPageOption: 'ignored',
+  });
+  const preferences = local.preferences();
+  assert.equal(preferences.theme, 'auto');
+  assert.equal(preferences.accent, 'orange');
+  assert.equal(preferences.density, 'comfortable');
+  assert.equal(preferences.textSize, 'normal');
+  assert.equal(preferences.tabPosition, 'top');
+  assert.equal(preferences.externalSuggestions, true);
+  assert.equal('staleStartPageOption' in preferences, false);
+  assert.ok(storage.getItem(local.keys.preferences), 'appearance choices are browser-local');
+
+  const older = JSON.parse(storage.getItem(local.keys.preferences));
+  delete older.theme;
+  storage.setItem(local.keys.preferences, JSON.stringify(older));
+  storage.setItem('waddle.theme', 'dark');
+  assert.equal(local.preferences().theme, 'dark', 'older browser-local themes still migrate');
+});
+
+test('unsafe bookmarks are discarded and local updates stay safe if storage is full', () => {
+  const { local, storage } = libraryInMemory();
+  local.bookmark('https://before.example/', 'Before', 'Unsorted');
+  storage.failKey = local.keys.library;
+  local.bookmark('javascript:alert(1)', 'Unsafe', 'Unsorted');
+  local.bookmark('https://after.example/', 'After', 'Unsorted');
   storage.failKey = '';
-  assert.deepEqual(JSON.parse(JSON.stringify(local.exportState())), JSON.parse(JSON.stringify(before)));
+  assert.deepEqual(
+    Array.from(local.get().bookmarks, (item) => item.url),
+    ['https://before.example/']
+  );
+  assert.equal(local.cleanUrl('file:///etc/passwd'), '');
+  assert.equal(local.cleanUrl('https://user:pass@example.com/'), 'https://example.com/');
 });

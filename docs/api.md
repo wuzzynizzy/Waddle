@@ -7,7 +7,7 @@ under `/-/api/`.
 
 - Every request needs the header `x-waddle: 1`. Browsers will not let another website send a custom
   header without permission, so the header is what keeps other sites from driving the API.
-- `POST` bodies are JSON (`content-type: application/json`), at most 1 MB; the full-backup restore endpoint accepts up to 10 MB.
+- `POST` bodies are JSON (`content-type: application/json`), at most 1 MB.
 - If `WADDLE_PASSWORD` is set, send it as HTTP Basic credentials (user `waddle` unless `WADDLE_USER`
   says otherwise).
 - Successful replies normally include the full state (below), plus any extra fields noted per call.
@@ -23,7 +23,7 @@ under `/-/api/`.
 | 403    | The `x-waddle` header is missing, or the request came from another website. |
 | 404    | No such endpoint.                                                           |
 | 405    | Wrong method.                                                               |
-| 413    | Body larger than 1 MB (10 MB for a backup restore).                         |
+| 413    | Body larger than 1 MB.                                                        |
 | 415    | The body is not JSON.                                                       |
 
 ```sh
@@ -184,28 +184,6 @@ the settings in a broken state.
 
 `{ "reset": true }` restores every default.
 
-## Server settings backup
-
-`GET /-/api/backup` exports a versioned server-settings envelope:
-
-```json
-{
-  "format": "waddle-backup",
-  "version": 1,
-  "exportedAt": "2026-11-10T00:00:00.000Z",
-  "config": { "route": {}, "dns": {}, "pool": {}, "spoof": {}, "privacy": {}, "ui": {} }
-}
-```
-
-`POST /-/api/backup` replaces the server configuration. The body must include
-`{"format":"waddle-backup","version":1,"config":{...}}`; settings are validated against the
-current version's schema and defaults fill omitted keys. The request limit is 10 MB. This endpoint
-handles server configuration only. The homepage's **Save checkpoint** action calls this export,
-adds browser-local bookmarks, saved addresses, history, open tabs and appearance preferences, then
-downloads a portable file directly. **Settings → General → Backup & migration** offers the same full
-export plus the browser-side restore action. Neither path includes session cookies, the request log or
-the live proxy/DNS caches; see [configuration.md](configuration.md#backup-and-migration).
-
 ## Pool
 
 `POST /-/api/pool` with an `action`:
@@ -280,8 +258,7 @@ and proxied-page data on one origin.
 | ---------------------------------- | --------------------------------------------------------------------------------- |
 | `GET /-/ping`                      | Health check. Answers 204 and never needs the password.                           |
 | `GET /-/api/inspect?url=…`         | Recent request records and cookie details for the current Waddle session. See [Inspector](#inspector). |
-| `GET /-/go?q=…`                    | Opens the interface on an address or a search, as the start page's box does.      |
-| `GET /tour`                        | Public product tour and self-hosting guide.                                        |
+| `GET /-/go?q=…`                    | Opens the interface on an address or a search, as the address/search box does.      |
 | `GET /install.sh`, `/install.ps1`  | Public, downloadable platform installer scripts.                                  |
 | `GET /<host>/<path>`               | Shortcut: `http://localhost:8080/example.com/news` opens that page in Waddle.     |
 | `GET, POST /-/cookie`              | Used by the page script to read and write `document.cookie`. Not for general use. |

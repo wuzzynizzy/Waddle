@@ -124,17 +124,17 @@ const site = http.createServer((req, res) => {
     );
   }
   // An ordinary page with a stylesheet and a picture of its own: what the screenshots show.
-  if (u.pathname === '/tour') {
+  if (u.pathname === '/story') {
     return html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Field notes</title><link rel="stylesheet" href="/tour.css"></head><body>
-<header><a class="brand" href="/tour">Field notes</a><nav><a href="/tour">Journal</a><a href="/tour">Maps</a><a href="/tour">About</a></nav></header>
+<title>Field notes</title><link rel="stylesheet" href="/story.css"></head><body>
+<header><a class="brand" href="/story">Field notes</a><nav><a href="/story">Journal</a><a href="/story">Maps</a><a href="/story">About</a></nav></header>
 <main><p class="kicker">Journal · Day 14</p><h1>The long walk to open water</h1>
 <p class="lead">Emperor penguins walk for days across the sea ice between the colony and the open sea. They are not fast, and they do not need to be.</p>
-<img src="/tour.svg" alt="Penguins walking in a line across the ice" width="720" height="280">
+<img src="/story.svg" alt="Penguins walking in a line across the ice" width="720" height="280">
 <p>They go in single file, each in the tracks of the one ahead, and when the ice slopes the right way they drop to their bellies and slide.</p>
 <p class="note">A stand-in page. It is served by a test website on this machine and reaches the browser through a test proxy.</p></main></body></html>`);
   }
-  if (u.pathname === '/tour.css') {
+  if (u.pathname === '/story.css') {
     res.writeHead(200, { 'Content-Type': 'text/css' });
     return res.end(`*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:#17202e;background:#f7f9fc}
 header{display:flex;align-items:center;gap:24px;padding:16px clamp(20px,6vw,64px);background:#fff;border-bottom:1px solid #e3e8f0}
@@ -144,7 +144,7 @@ h1{font-size:40px;line-height:1.15;margin:8px 0 16px;letter-spacing:-.02em}.lead
 img{display:block;width:100%;height:auto;border-radius:16px;margin:0 0 28px}.note{margin-top:32px;padding:14px 16px;border-radius:12px;background:#eaf2fd;color:#27405f;font-size:15px}
 @media (max-width:600px){h1{font-size:30px}.lead{font-size:18px}nav{display:none}main{padding:28px 20px 48px}}`);
   }
-  if (u.pathname === '/tour.svg') {
+  if (u.pathname === '/story.svg') {
     const bird = (x, y, s) =>
       `<g transform="translate(${x} ${y}) scale(${s})"><ellipse cx="0" cy="0" rx="13" ry="24" fill="#1b2433"/><ellipse cx="2" cy="3" rx="8" ry="18" fill="#fff"/>` +
       `<circle cx="3" cy="-20" r="9" fill="#1b2433"/><path d="M10-21l9 3-9 3z" fill="#ff8a1f"/><path d="M-4 23h10l4 4h-16z" fill="#ff8a1f"/></g>`;
@@ -327,9 +327,6 @@ const browser = await puppeteer.launch({
 });
 const realUA = await browser.userAgent();
 const page = await browser.newPage();
-const tourPage = await browser.newPage();
-const tourErrors = [];
-tourPage.on('pageerror', (e) => tourErrors.push(String(e)));
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 const bad = [];
@@ -438,183 +435,23 @@ const canvasPrint = () => {
 };
 
 try {
-  // ---- illustrated product tour: route builder, resolver demo and installers
-  await tourPage.goto(BASE + '/tour', { waitUntil: 'networkidle0' });
-  check(
-    'the Waddle tour opens with its hand-drawn penguin artwork',
-    (await tourPage.title()).includes('Waddle') && (await tourPage.$('.scene-art')) !== null
-  );
-  const tourMascot = await tourPage.$eval('.scene-art', (svg) => ({
-    circles: svg.querySelectorAll('circle').length,
-    orbitDecorations: svg.querySelectorAll('.orbit-node, .tiny-label, .snow-stars').length,
-    eyes: getComputedStyle(svg.querySelector('.penguin-eyes')).animationName,
-    wing: getComputedStyle(svg.querySelector('.wing-wave')).animationName,
-    foot: getComputedStyle(svg.querySelector('.penguin-foot')).animationName,
-    scarf: getComputedStyle(svg.querySelector('.scarf-tail')).animationName,
-  }));
-  check(
-    'the tour keeps only Waddle’s face circles and removes decorative orbits',
-    tourMascot.circles === 4 && tourMascot.orbitDecorations === 0,
-    tourMascot
-  );
-  check(
-    'Waddle animates his eyes, wings, feet and scarf independently',
-    tourMascot.eyes === 'penguin-blink' &&
-      tourMascot.wing === 'hello-wave' &&
-      tourMascot.foot === 'foot-step' &&
-      tourMascot.scarf === 'scarf-sway',
-    tourMascot
-  );
-  const supportingMascots = await tourPage.evaluate(() => ({
-    miniWing: getComputedStyle(document.querySelector('.mini-wing-wave')).animationName,
-    miniEyes: getComputedStyle(document.querySelector('.mini-eyes')).animationName,
-    closingWing: getComputedStyle(document.querySelector('.closing-wing-wave')).animationName,
-    closingEyes: getComputedStyle(document.querySelector('.closing-eyes')).animationName,
-    closingFoot: getComputedStyle(document.querySelector('.closing-foot')).animationName,
-    closingCircles: document.querySelectorAll('.closing-art svg circle').length,
-    closingRing: getComputedStyle(document.querySelector('.closing-section'), '::before').content !== 'none',
-  }));
-  check(
-    'the smaller Waddles also wave, blink and step',
-    supportingMascots.miniWing === 'hello-wave' &&
-      supportingMascots.miniEyes === 'penguin-blink' &&
-      supportingMascots.closingWing === 'hello-wave' &&
-      supportingMascots.closingEyes === 'penguin-blink' &&
-      supportingMascots.closingFoot === 'foot-step',
-    supportingMascots
-  );
-  check(
-    'the tour closing mascot has no decorative orbit circles',
-    supportingMascots.closingCircles === 2 && !supportingMascots.closingRing,
-    supportingMascots
-  );
-  check('the old promotional wording is absent from the tour', !(await tourPage.$eval('body', (n) => /perfected/i.test(n.textContent))));
-  check(
-    'tour includes direct self-host installers and the GitHub source',
-    (await tourPage.$eval('#unixCode', (n) => /waddle\.wisp\.uno\/install\.sh/.test(n.textContent))) &&
-      (await tourPage.$eval('#windowsCode', (n) => /install\.ps1/.test(n.textContent)))
-  );
-  await tourPage.click('#hopPlus');
-  await tourPage.click('#hopPlus');
-  check(
-    'the tour route demo interactively adds proxy hops',
-    (await tourPage.$eval('#hopCount', (n) => n.textContent)) === '3 hops' && (await tourPage.$$('.chain-node')).length === 5
-  );
-  for (let i = 0; i < 13; i++) await tourPage.click('#hopPlus');
-  check(
-    'the route demo reaches its documented 16-hop ceiling',
-    (await tourPage.$eval('#hopCount', (n) => n.textContent)) === '16 hops' && (await tourPage.$eval('#hopPlus', (n) => n.disabled))
-  );
-  await tourPage.click('.strategy[data-strategy="check"]');
-  check(
-    'the tour DNS demo explains resolver cross-checks',
-    (await tourPage.$eval('#strategyNote', (n) => n.textContent)).includes('Conflicting answers')
-  );
-  await tourPage.click('#addResolver');
-  check(
-    'the tour DNS demo can grow its resolver stack',
-    (await tourPage.$$('.resolver-row')).length === 4 &&
-      (await tourPage.$eval('#resolverCount', (n) => n.textContent)) === '4 / 64 in stack'
-  );
-  await tourPage.click('#tabWindows');
-  check(
-    'the tour switches to the Windows PowerShell installer',
-    !(await tourPage.$eval('#windowsCode', (n) => n.hidden)) && (await tourPage.$eval('#unixCode', (n) => n.hidden))
-  );
-  await tourPage.setViewport({ width: 390, height: 820 });
-  await tourPage.click('#menuToggle');
-  check(
-    'the tour navigation opens accessibly on a phone',
-    (await tourPage.$eval('#menuToggle', (n) => n.getAttribute('aria-expanded'))) === 'true' &&
-      !(await tourPage.$eval('#mobileNav', (n) => n.hidden))
-  );
-  if (SHOTS) await tourPage.screenshot({ path: path.join(SHOTS, 'waddle-tour.png'), fullPage: true });
-
   // ---- shell
   await page.goto(BASE + '/', { waitUntil: 'networkidle0' });
   check('landing renders', (await page.$eval('#landing h1', (n) => n.textContent)) === 'Waddle');
-  const homeMascot = await page.$eval('.hero svg', (svg) => ({
-    circles: svg.querySelectorAll('circle').length,
-    rings: ['::before', '::after'].some((pseudo) => getComputedStyle(svg.parentElement, pseudo).content !== 'none'),
-    eyes: getComputedStyle(svg.querySelector('.home-eyes')).animationName,
-    wing: getComputedStyle(svg.querySelector('.wave')).animationName,
-    foot: getComputedStyle(svg.querySelector('.home-foot')).animationName,
-    torso: getComputedStyle(svg.querySelector('.home-torso')).animationName,
-  }));
-  check('the homepage mascot has no decorative rings', homeMascot.circles === 4 && !homeMascot.rings, homeMascot);
+  await page.waitForFunction(() => document.querySelector('#route span').textContent.length > 0, { timeout: 5000 });
   check(
-    'the homepage animates Waddle’s blinking, wave, feet and body',
-    homeMascot.eyes === 'home-blink' &&
-      homeMascot.wing === 'home-wave' &&
-      homeMascot.foot === 'home-step' &&
-      homeMascot.torso === 'home-breathe',
-    homeMascot
+    'the start screen keeps only the proxy entry point and quiet attribution',
+    (await page.$('#q')) !== null &&
+      (await page.$eval('#nav', (n) => getComputedStyle(n).display === 'none')) &&
+      (await page.$eval('#landing', (n) => !/#checkpoint|#quickVisit|#homeSaved|#homePicks|#chips/.test(n.innerHTML))) &&
+      (await page.$eval('body', (n) => !/Meet Waddle|Take the scenic route|Save checkpoint/i.test(n.textContent))) &&
+      !!(await page.$('a[href="https://github.com/wuzzynizzy/Waddle"]')) &&
+      !!(await page.$('a[href$="/LICENSE"]')),
+    await page.$eval('#route span', (n) => n.textContent)
   );
-  check('the old promotional wording is absent from the homepage', !(await page.$eval('body', (n) => /perfected/i.test(n.textContent))));
-  await page.waitForFunction(() => document.querySelectorAll('#chips .pill').length >= 4, { timeout: 5000 });
-  const chips = await page.$$eval('#chips .pill', (n) => n.map((x) => x.textContent));
-  check(
-    'status chips: live proxies, hops, lookups, identity',
-    chips.length === 4 && chips[0] === '1 live' && chips[1] === '1 hop' && chips[2] === 'DNS · auto',
-    chips
-  );
-  check(
-    'a claimed browser of another kind than the real one is flagged',
-    await page.$eval('#chips .pill:nth-child(4) i', (n) => n.classList.contains('warn')).catch(() => false),
-    chips
-  );
-  check('quick links shown', (await page.$$eval('#links .tile', (n) => n.length)) === 4);
   await shot('landing');
   const small = await phone('phone-landing');
   check('at a phone’s width the start page fits the screen', !small.sideways && small.bar, small);
-  const checkpointFile = await page.evaluate(async () => {
-    const originalCreate = URL.createObjectURL;
-    const originalClick = HTMLAnchorElement.prototype.click;
-    let resolveText;
-    let filename = '';
-    const contents = new Promise((resolve) => {
-      resolveText = resolve;
-    });
-    URL.createObjectURL = function (blob) {
-      blob.text().then(resolveText);
-      return originalCreate.call(URL, blob);
-    };
-    HTMLAnchorElement.prototype.click = function () {
-      filename = this.download;
-      return originalClick.call(this);
-    };
-    try {
-      document.querySelector('#checkpoint').click();
-      const text = await contents;
-      return { filename: filename, text: text };
-    } finally {
-      URL.createObjectURL = originalCreate;
-      HTMLAnchorElement.prototype.click = originalClick;
-    }
-  });
-  const checkpointBackup = JSON.parse(checkpointFile.text);
-  check(
-    'the homepage checkpoint directly downloads a portable backup, without opening settings',
-    checkpointFile.filename.startsWith('waddle-backup-') &&
-      checkpointFile.filename.endsWith('.json') &&
-      checkpointBackup.format === 'waddle-backup' &&
-      checkpointBackup.version === 1 &&
-      checkpointBackup.config &&
-      checkpointBackup.browser &&
-      Array.isArray(checkpointBackup.tabs) &&
-      !('cookies' in checkpointBackup) &&
-      (await page.$eval('#drawer', (n) => n.hidden)),
-    {
-      filename: checkpointFile.filename,
-      format: checkpointBackup.format,
-      version: checkpointBackup.version,
-      hasConfig: !!checkpointBackup.config,
-      hasBrowser: !!checkpointBackup.browser,
-      hasTabs: Array.isArray(checkpointBackup.tabs),
-      hasCookies: 'cookies' in checkpointBackup,
-      drawerHidden: await page.$eval('#drawer', (n) => n.hidden),
-    }
-  );
   await page.type('#q', SITE + '/');
   await page.keyboard.press('Enter');
   let f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);
@@ -942,17 +779,17 @@ try {
   check('visited itself, it keeps its cookies', /wid=1/.test(own.cookie) && /wid=1/.test(own.sent), own);
 
   // ---- an ordinary page: its own stylesheet and picture arrive, and it is laid out by them
-  await goTo(SITE + '/tour');
+  await goTo(SITE + '/story');
   f = await waitFrame(() => document.title === 'Field notes' && document.images.length === 1 && document.images[0].complete);
-  const tour = await f.evaluate(() => ({
+  const storyPage = await f.evaluate(() => ({
     heading: getComputedStyle(document.querySelector('h1')).fontSize,
     picture: document.images[0].naturalWidth,
     sheet: document.styleSheets[0].href,
   }));
   check(
     'a page is laid out by its own stylesheet and shows its own picture, both fetched through the proxy',
-    tour.heading === '40px' && tour.picture > 0 && tour.sheet.includes('/~/' + SITE + '/tour.css'),
-    tour
+    storyPage.heading === '40px' && storyPage.picture > 0 && storyPage.sheet.includes('/~/' + SITE + '/story.css'),
+    storyPage
   );
   await shot('browsing');
   const held = await phone('phone-browsing');
@@ -1060,13 +897,17 @@ try {
     n.value = '';
   });
   await tabTo('General');
-  await page.waitForSelector('#panel [data-k="ui.theme=dark"]');
-  await press('ui.theme=dark');
-  await sleep(100);
-  check('the app’s own theme changes at once', (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'dark');
+  await page.waitForSelector('#panel [data-k="local.theme=dark"]');
+  const serverConfigBeforeTheme = JSON.stringify(app.config.value);
+  await press('local.theme=dark');
+  await page.waitForFunction(
+    () => WaddleLocal.preferences().theme === 'dark' && document.documentElement.getAttribute('data-theme') === 'dark'
+  );
+  check('the app’s own theme changes at once', await page.evaluate(() => WaddleLocal.preferences().theme === 'dark'));
+  check('changing the theme does not update server configuration', JSON.stringify(app.config.value) === serverConfigBeforeTheme);
   await shot('general-dark');
-  await press('ui.theme=auto');
-  await sleep(400);
+  await press('local.theme=auto');
+  await page.waitForFunction(() => WaddleLocal.preferences().theme === 'auto' && !document.documentElement.hasAttribute('data-theme'));
 
   // ---- what sites see
   await tabTo('Privacy');
@@ -1168,7 +1009,7 @@ try {
 
   // ---- browser tabs, local library, inspection and frontend preferences
   await page.keyboard.press('Escape');
-  await goTo(SITE + '/tour');
+  await goTo(SITE + '/story');
   f = await waitFrame(() => document.title === 'Field notes' && document.querySelector('img') && document.querySelector('img').complete);
   check('one browser tab starts open', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 1);
   await page.click('#newTab');
@@ -1183,11 +1024,11 @@ try {
   check('each tab has its own back and forward history', true);
   await page.evaluate(() => document.querySelector('#tabbar .browser-tab').click());
   f = await waitFrame(() => document.title === 'Field notes');
-  check('switching tabs restores the page in the first tab', (await addrBar()) === SITE + '/tour');
+  check('switching tabs restores the page in the first tab', (await addrBar()) === SITE + '/story');
   await f.evaluate(() => {
     const a = document.createElement('a');
     a.id = 'open-in-waddle-tab';
-    a.href = '/tour?from=new-tab';
+    a.href = '/story?from=new-tab';
     a.target = '_blank';
     a.textContent = 'Open a separate tab';
     document.body.appendChild(a);
@@ -1206,8 +1047,22 @@ try {
     'the toolbar star adds a browser-local bookmark',
     await page.evaluate(() => WaddleLocal.get().bookmarks.some((x) => /from=new-tab/.test(x.url)))
   );
+  check(
+    'the bookmark icon fills and reports its saved state',
+    await page.$eval(
+      '#bookmark',
+      (n) => n.getAttribute('aria-pressed') === 'true' && getComputedStyle(n.querySelector('svg')).fill !== 'none'
+    )
+  );
   await page.click('#library');
   await page.waitForSelector('#libraryPanel:not([hidden])');
+  check(
+    'the library icon fills while its panel is open',
+    await page.$eval(
+      '#library',
+      (n) => n.getAttribute('aria-pressed') === 'true' && getComputedStyle(n.querySelector('svg')).fill !== 'none'
+    )
+  );
   check('the library lists the saved bookmark', await page.$eval('#libraryContent', (n) => /from=new-tab/.test(n.textContent)));
   await page.type('#newFolder', 'Research');
   await page.click('#libraryContent .folder-tools .btn');
@@ -1218,38 +1073,10 @@ try {
   await page.select('#libraryContent .folder-select', 'Research');
   check('bookmarks can be organised into folders', await page.$eval('#libraryContent', (n) => /Research/.test(n.textContent)));
   await shot('library');
-  const exportText = await page.evaluate(async () => {
-    const createObjectURL = URL.createObjectURL;
-    let content = Promise.resolve('');
-    URL.createObjectURL = function (blob) {
-      content = blob.text();
-      return createObjectURL.call(URL, blob);
-    };
-    try {
-      [...document.querySelectorAll('#libraryContent button')].find((b) => b.textContent === 'Export JSON').click();
-      return await content;
-    } finally {
-      URL.createObjectURL = createObjectURL;
-    }
-  });
-  const exportData = JSON.parse(exportText);
   check(
-    'bookmarks can be exported as JSON',
-    exportData.format === 'waddle-bookmarks' && exportData.version === 1 && exportData.bookmarks.length > 0
+    'bookmark library does not offer data export',
+    !(await page.$$eval('#libraryContent button', (buttons) => buttons.some((button) => /export/i.test(button.textContent))))
   );
-  const importFile = '/tmp/waddle-bookmark-import.json';
-  fs.writeFileSync(
-    importFile,
-    JSON.stringify({
-      format: 'waddle-bookmarks',
-      version: 1,
-      folders: ['Imported'],
-      bookmarks: [{ url: 'https://example.org/read-later', title: 'Imported bookmark', folder: 'Imported' }],
-    })
-  );
-  await (await page.$('#libraryContent input[type="file"]')).uploadFile(importFile);
-  await page.waitForFunction(() => WaddleLocal.get().bookmarks.some((x) => x.url === 'https://example.org/read-later'));
-  check('a browser bookmarks JSON file can be imported', true);
   const htmlImportFile = '/tmp/waddle-bookmark-import.html';
   fs.writeFileSync(
     htmlImportFile,
@@ -1266,6 +1093,11 @@ try {
   check(
     'a page can be saved for later without downloading it',
     await page.$eval('#libraryContent', (n) => /Field notes/.test(n.textContent))
+  );
+  await page.click('#home');
+  check(
+    'saved pages remain local and the start screen stays minimal',
+    (await page.evaluate(() => WaddleLocal.get().saved.length)) > 0 && (await page.$('#homeSaved')) === null
   );
   await page.click('#libraryTabs button:nth-child(3)');
   await page.waitForFunction(() => document.querySelectorAll('#libraryContent .library-entry').length > 0);
@@ -1303,18 +1135,35 @@ try {
 
   // A start page built only from this browser's local library, with web suggestions off by default.
   await page.click('#home');
-  await page.waitForFunction(() => !document.getElementById('homePicks').hidden);
   await page.type('#q', 'Field notes');
   await page.waitForSelector('#suggestions .suggest-item');
-  await shot('recommendations');
+  await shot('address-suggestions');
   check(
-    'local recommendations and address suggestions use this browser’s library',
+    'address suggestions use this browser’s local library without a homepage panel',
     await page.$eval('#suggestions', (n) => /Bookmark|History|Saved|Open tab/.test(n.textContent))
   );
   check('external web suggestions are opt-in', await page.evaluate(() => WaddleLocal.preferences().externalSuggestions === false));
   await page.click('#gear');
   await tabTo('General');
   await shot('frontend-settings');
+  await page.click('#panel [data-k="local.theme=midnight"]');
+  await page.waitForFunction(() => WaddleLocal.preferences().theme === 'midnight' && document.documentElement.dataset.theme === 'midnight');
+  check('named themes apply immediately and stay local', await page.evaluate(() => WaddleLocal.preferences().theme === 'midnight'));
+  await page.click('#panel [data-k="local.theme=auto"]');
+  await page.waitForFunction(() => WaddleLocal.preferences().theme === 'auto' && !document.documentElement.hasAttribute('data-theme'));
+  const customAccent = await page.$('#panel input[aria-label="Custom accent colour"]');
+  await customAccent.evaluate((n) => {
+    n.value = '#14a085';
+    n.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  check(
+    'custom accent colour applies locally',
+    await page.evaluate(
+      () =>
+        WaddleLocal.preferences().accent === 'custom' &&
+        getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#14a085'
+    )
+  );
   await press('local.accent');
   await page.waitForSelector('#panel .dd-opt');
   await page.evaluate(() => [...document.querySelectorAll('#panel .dd-opt')].find((n) => n.textContent.trim() === 'Blue').click());
@@ -1345,22 +1194,36 @@ try {
       () => document.body.dataset.tabPosition === 'bottom' && getComputedStyle(document.querySelector('#tabbar')).order === '4'
     )
   );
-  await press('local.showStatus');
-  check('start-page status chips can be hidden', await page.$eval('#chips', (n) => n.hidden));
-  await press('local.showStatus');
-  await press('local.showLinks');
-  check('quick links can be hidden', await page.$eval('#links', (n) => n.hidden));
-  await press('local.showLinks');
-  await press('btn:Reset frontend settings');
-  await page.waitForFunction(() => WaddleLocal.preferences().accent === 'orange' && WaddleLocal.preferences().tabPosition === 'top');
+  const serverConfigBeforeReset = JSON.stringify(app.config.value);
+  await press('btn:Reset appearance');
+  await page.waitForFunction(
+    () =>
+      WaddleLocal.preferences().theme === 'auto' &&
+      WaddleLocal.preferences().accent === 'orange' &&
+      WaddleLocal.preferences().tabPosition === 'top'
+  );
   check(
-    'frontend preferences can be reset without changing server config',
-    app.config.value.ui.theme === 'auto' && app.config.value.ui.links.length > 0
+    'frontend preferences reset locally without changing server config',
+    JSON.stringify(app.config.value) === serverConfigBeforeReset && !Object.hasOwn(app.config.value.ui, 'links')
   );
   await page.click('#gear');
+  await page.evaluate(() => (document.getElementById('q').value = ''));
+  await page.type('#q', SITE + '/');
+  await page.keyboard.press('Enter');
+  f = await waitFrame(() => document.title === 'Fixture' && window.appLoaded === true);
 
   // New identity clears history and site data, but keeps bookmarks and read-later items.
   await page.click('#fresh');
+  check(
+    'new identity visibly arms and fills before confirmation',
+    await page.$eval(
+      '#fresh',
+      (n) =>
+        n.classList.contains('armed') &&
+        n.getAttribute('aria-pressed') === 'true' &&
+        getComputedStyle(n.querySelector('svg')).fill !== 'none'
+    )
+  );
   await page.click('#fresh');
   await page.waitForFunction(() => WaddleLocal.get().history.length === 0);
   check('New identity clears local browsing history', await page.evaluate(() => WaddleLocal.get().history.length === 0));
@@ -1369,53 +1232,6 @@ try {
     await page.evaluate(() => WaddleLocal.get().bookmarks.length > 0 && WaddleLocal.get().saved.length > 0)
   );
   check('New identity closes extra Waddle tabs', (await page.$$eval('#tabbar .tabgroup', (n) => n.length)) === 1);
-
-  // A full migration backup moves both server settings and the browser-local shelf.
-  await page.click('#gear');
-  await tabTo('General');
-  await page.waitForSelector('#panel [data-k="btn:Export full backup"]');
-  const backupText = await page.evaluate(async () => {
-    const original = URL.createObjectURL;
-    let resolveText;
-    const content = new Promise((resolve) => {
-      resolveText = resolve;
-    });
-    URL.createObjectURL = function (blob) {
-      blob.text().then(resolveText);
-      return original.call(URL, blob);
-    };
-    try {
-      document.querySelector('[data-k="btn:Export full backup"]').click();
-      return await content;
-    } finally {
-      URL.createObjectURL = original;
-    }
-  });
-  const fullBackup = JSON.parse(backupText);
-  check(
-    'a full backup contains server settings, the local library and tabs but no session cookies',
-    fullBackup.format === 'waddle-backup' &&
-      fullBackup.version === 1 &&
-      fullBackup.config &&
-      fullBackup.browser.library.bookmarks.length > 0 &&
-      Array.isArray(fullBackup.tabs) &&
-      !('cookies' in fullBackup)
-  );
-  await page.evaluate(() => WaddleLocal.savePreferences({ accent: 'blue' }));
-  app.config.patch({ ui: { theme: 'dark' } });
-  const migrationFile = '/tmp/waddle-full-backup.json';
-  fs.writeFileSync(migrationFile, backupText);
-  page.once('dialog', (dialog) => dialog.accept());
-  const restoreNavigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 12000 });
-  await (await page.$('#panel input[aria-label="Restore a Waddle backup"]')).uploadFile(migrationFile);
-  await restoreNavigation;
-  await page.waitForFunction(() => window.WaddleLocal && document.querySelectorAll('#chips .pill').length >= 4, { timeout: 8000 });
-  check(
-    'restoring a backup migrates local preferences and replaces server settings',
-    app.config.value.ui.theme === fullBackup.config.ui.theme &&
-      (await page.evaluate(() => WaddleLocal.preferences().accent)) === fullBackup.browser.preferences.accent
-  );
-
   await page.keyboard.press('Escape');
 
   // ---- nothing reached the fixture except through the exit
@@ -1441,7 +1257,6 @@ try {
     edge.edgeStatuses.slice(0, 5)
   );
   check('no uncaught errors in the page', errors.length === 0, errors.slice(0, 3));
-  check('no uncaught errors on the tour page', tourErrors.length === 0, tourErrors.slice(0, 3));
 } catch (e) {
   check('run completed', false, String((e && e.stack) || e));
   await shot('failure');
