@@ -19,7 +19,7 @@ accounts that matter.
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Local by default | `npm start` listens on `127.0.0.1`, so only the same machine can connect. Setting `HOST=0.0.0.0` exposes it to the network, and the start-up log says so.                                                                   |
 | Password         | `WADDLE_PASSWORD` puts everything behind HTTP Basic authentication (user `waddle`, or `WADDLE_USER`). It covers pages, the API and WebSockets, and is compared in constant time. Only the health check `/-/ping` is exempt. |
-| No indexing      | `/robots.txt` disallows everything.                                                                                                                                                                                         |
+| No indexing      | `server.js` serves `/robots.txt` with `User-agent: *` and `Disallow: /`.                                                                                                                                                    |
 
 An open proxy on a public address will be found and abused within hours. If you expose Waddle, set a
 password and put it behind HTTPS (a reverse proxy or a tunnel): Basic authentication over plain

@@ -50,6 +50,7 @@ no way to fetch a site without one.
 | `/~/<absolute URL>` | A proxied resource, for example `/~/https://example.com/a?b=1`.   |
 | `/~/f/<URL>`        | A document that a page embeds in a frame.                         |
 | `/-/…`              | Waddle's own files and API (see [api.md](api.md)).                |
+| `/robots.txt`       | Disallows crawlers from indexing a self-hosted Waddle instance.   |
 | `/<host>/<path>`    | Shortcut: `/example.com/news` opens that site in the interface.   |
 
 ## Browser shell state and inspection
@@ -60,7 +61,8 @@ bookmarks and folders, searchable history, saved read-later addresses, appearanc
 open-tab state. Saved items are URLs and titles, not downloaded page copies. Local address suggestions
 match this library and open tabs; optional DuckDuckGo autocomplete is off by default and sends typed
 queries through the current proxy exit when enabled. These browser-local records are not exported by
-Waddle. The start screen itself contains only the address/search field and small project attribution.
+Waddle. The start screen contains one address/search field and a single source link, without a mascot
+or visible wordmark.
 
 The Inspector combines two sources. `lib/proxy.js` records a capped, newest-first log of recent
 requests in each in-memory visitor session, including route, status, transfer counts, duration,

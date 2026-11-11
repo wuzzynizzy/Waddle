@@ -74,9 +74,10 @@ disk use has been benchmarked on a target host, so treat these defaults as start
 ## Browser data and persistence
 
 Waddle has no built-in backup, restore or export feature. Bookmarks, saved addresses, history, open-tab
-state and appearance preferences stay in the current browser. Clearing that browser's site data removes
-them. Server settings and proxy/resolver state still persist under the `data` directory; manage those
-files outside Waddle if you need to preserve them.
+state and appearance preferences stay in the current browser. Appearance includes the theme, accent
+(including a custom colour), density, text size and tab-strip position. Clearing that browser's site
+data removes them. Server settings and proxy/resolver state still persist under the `data` directory;
+manage those files outside Waddle if you need to preserve them.
 
 ## Optional environment variables
 

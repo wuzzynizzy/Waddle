@@ -295,7 +295,8 @@ restore or export controls; clearing this browser's site data removes its local 
   read-later list. There is no bookmark or library export.
 - **Appearance:** seven themes (`auto`, `light`, `dark`, `midnight`, `forest`, `rose`, `sand`), ten
   accent presets or a custom colour, density (`comfortable`, `compact`, `spacious`), text size and
-  tab-strip position. These choices are local to the browser.
+  tab-strip position. These choices are local to the browser. The custom colour editor appears only
+  when **Custom** is selected, and settings controls reflow at narrow widths without overlapping.
 - **Suggestions:** address matches use this browser's open tabs, bookmarks, saved addresses and history.
   DuckDuckGo web suggestions are off by default. When enabled, after a pause while typing at least
   three characters, the query is sent through the current proxy exit. The selected search engine still

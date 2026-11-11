@@ -5,7 +5,7 @@ browser.
 
 ```sh
 npm test              # unit and integration: 191 tests
-npm run test:browser  # end to end in Chrome: 138 checks
+npm run test:browser  # end to end in Chrome: 143 checks
 ```
 
 Neither suite uses the internet. Both replace it with stand-ins on the local machine, so they pass
@@ -45,7 +45,7 @@ come through an exit.
 | `dns.test.js`     | 21    | Wire format, caching, padding, each of the five orders, failover, "no such name", blocked names; that a visited site's name only ever travels through a proxy; the system fallback and its limits; the public resolver list from download to the kept few.                                                                                                        |
 | `net.test.js`     | 25    | That a request without a proxy is refused; HTTP, SOCKS4 and SOCKS5 tunnels; credentials; chains of two and three; which hop failed and why; timeouts; stale connections; names resolved at the exit; plain HTTP carried as a tunnel; the private-address guard.                                                                                                   |
 | `pool.test.js`    | 26    | Harvesting from each kind of source, testing, protocol detection, discovery, persistence; vetting (tampering, header leaks); eviction and blame; chains and entry countries; one exit per page and exits for third parties; health; pausing when nothing answers; adaptive scheduling.                                                                            |
-| `proxy.test.js`   | 43    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies, trackers, workers, HTTPS only, error pages, routing/failover, chains through 16 proxies, removed backup/tour endpoints, installers, auth guards, inspector redaction and WebSockets. |
+| `proxy.test.js`   | 43    | The whole server: pages, sub-resources, encodings and character sets, redirects, uploads, cookies, trackers, workers, HTTPS only, error pages, routing/failover, chains through 16 proxies, removed backup/tour endpoints, installers, auth guards, robots.txt, inspector redaction and WebSockets. |
 | `timing.test.js`  | 8     | Response times, below.                                                                                                                                                                                                                                                                                                                                            |
 
 The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
@@ -62,14 +62,15 @@ The browser suite (`test/browser/e2e.mjs`) checks what only a browser can:
   tab, and a narrow viewport scrolls the strip without horizontal page overflow. Bookmarks, folders,
   one-way browser HTML import, saved addresses, searchable local history,
   and New identity cleanup are exercised in the browser. The library has no export controls.
-- The minimal start screen keeps the proxy entry flow prominent, retains GitHub/MIT attribution, and
-  omits promotional panels, checkpoint controls and export actions.
+- The minimal start screen has one centered address/search field and one Source on GitHub link, with
+  no mascot, visible wordmark, secondary links or promotional panels.
 - The Inspect panel shows request routes and statuses, response headers, cookie names with HttpOnly
   values hidden, and rewritten source without the Waddle bootstrap.
 - Address suggestions are drawn from the browser's local library; external suggestions are off by
   default. Theme, accent, density, text size and tab position are persisted locally.
-- The settings drawer saves changes, shows the page's route, and keeps unsent text. At a phone's
-  width nothing runs off the side of the screen.
+- The settings drawer saves changes, shows the page's route, and keeps unsent text. At a narrow
+  width, default and custom controls reflow without overlapping or pushing the page sideways; the
+  custom accent editor is shown only when selected.
 - **What sites see** shows the claimed browser next to the real one.
 - HTTPS only: a site without HTTPS gets Waddle's page, and continuing takes a click.
 - With the server away, behind a stand-in for a host's edge that answers 502 with its own page, the

@@ -29,9 +29,9 @@ browser. Keep Docker/Compose out of the supported quick-start path unless explic
   to cross-site pages.
 - Waddle listens on localhost by default. Document password and HTTPS requirements before suggesting
   that users expose it to other machines or the internet.
-- Keep the start screen intentionally minimal: one address/search entry point and quiet project
-  attribution. Do not add promotional panels, a product tour, backup or export controls without an
-  explicit request.
+- Keep the start screen intentionally minimal: one centered address/search entry point and a single
+  Source on GitHub link. No mascot, visible wordmark, secondary links, promotional panels or product
+  tour; do not add backup or export controls without an explicit request.
 - Keep controls keyboard-accessible, labeled and usable at phone widths. Preserve the current
   one-command install and source-launch workflows.
 - Do not commit generated runtime state, browser-test output or preview data. `data/` is ignored for
@@ -41,9 +41,12 @@ browser. Keep Docker/Compose out of the supported quick-start path unless explic
 
 - Keep the existing no-build, dependency-light setup. Add a runtime dependency only when it is needed
   and document the reason.
-- When behavior changes, update the relevant README and pages in `docs/` together. Keep test counts
-  in `README.md` and `docs/testing.md` synchronized, and refresh `docs/img/landing.png` or
-  `docs/img/phone-landing.png` when the start-page appearance changes.
+- For user-visible changes, update the README and the relevant guides in `docs/` together. For
+  settings/UI work, keep `README.md`, `docs/configuration.md`, `docs/testing.md` and the relevant
+  screenshots aligned; update `docs/installing.md` when setup or persistence changes. Keep test counts
+  in `README.md` and `docs/testing.md` synchronized.
+- `/robots.txt` is served directly by `server.js` and disallows all crawlers; do not add a duplicate
+  static file. Keep that behavior covered by the server integration test and documented in Security.
 - Prefer focused changes and tests that cover observable behavior. For UI work, use the browser E2E
   suite and check accessibility, reduced motion and narrow viewports.
 - Use a feature branch and pull request for changes intended for `main`; do not push directly to

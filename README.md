@@ -113,7 +113,8 @@ state, plus selected response headers, cookies for the current address and the p
 source. HttpOnly cookie values and `Set-Cookie` response values are hidden. The inspector's request
 log is kept in memory for this Waddle session and is cleared by New identity.
 
-**A minimal start screen.** One address/search field, no promotional panels or quick-visit cards.
+**A minimal start screen.** One address/search field; no mascot, visible wordmark, secondary links,
+promotional panels or quick-visit cards.
 Themes, accent, layout and text size remain local to this browser; they are not synced to the server.
 
 **Its own pages when something fails.** Each failure has a short page that says what went wrong and
@@ -122,8 +123,10 @@ comes back by itself, never an unstyled error page from the host in front of it.
 
 ## The interface
 
-The start screen is intentionally small: Waddle, one search/address field, and quiet MIT/GitHub
-attribution. The route status stays in the toolbar. Themes and accent choices live in this browser.
+The start screen is intentionally bare: one centered search/address field and a single Source on GitHub
+link, with no mascot, visible wordmark or secondary links. Route status stays in the toolbar. Themes and
+accent choices live in this browser. Settings reflow at narrow widths, and the custom accent editor
+appears only when selected.
 
 ![Start page](docs/img/landing.png)
 
@@ -154,6 +157,8 @@ It works the same way on a phone, and in the dark:
 
 ![Dark theme](docs/img/general-dark.png)
 
+![Custom accent settings](docs/img/custom-accent.png)
+
 The screenshots come from the browser test, where the internet is replaced by stand-ins on the test
 machine. The "site" is a test page and the exit is a test proxy that the test places in the United
 States, which is why the addresses read `127.0.0.1`.
@@ -178,7 +183,7 @@ identity. A service worker catches whatever is left. More in
 
 ```sh
 npm test              # 191 unit and integration tests, no network needed
-npm run test:browser  # 138 browser checks in a real Chrome (see docs/testing.md)
+npm run test:browser  # 143 browser checks in a real Chrome (see docs/testing.md)
 ```
 
 Both suites run the real server against stand-in websites, proxies (HTTP, SOCKS4, SOCKS5), DNS
